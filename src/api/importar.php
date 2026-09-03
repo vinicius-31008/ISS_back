@@ -7,6 +7,58 @@ declare(strict_types=1);
  * POST /ImportadorFiscalISS/src/api/importar.php
  */
 
+/**
+ * @OA\Post(
+ *     path="/src/api/importar.php",
+ *     tags={"Importação"},
+ *     summary="Importa um arquivo TXT de notas fiscais e calcula o ISS",
+ *     description="Recebe um arquivo TXT (multipart/form-data), valida e processa linha a linha: classifica o serviço pelo código LC116, calcula o ISS devido e grava a importação, as notas e eventuais erros de linha no MySQL.",
+ *     @OA\RequestBody(
+ *         required=true,
+ *         @OA\MediaType(
+ *             mediaType="multipart/form-data",
+ *             @OA\Schema(
+ *                 required={"arquivo"},
+ *                 @OA\Property(
+ *                     property="arquivo",
+ *                     type="string",
+ *                     format="binary",
+ *                     description="Arquivo .txt com uma nota fiscal por linha, campos separados por ';' (ver formato no README)."
+ *                 )
+ *             )
+ *         )
+ *     ),
+ *     @OA\Response(
+ *         response=200,
+ *         description="Arquivo processado (com ou sem erros de linha)",
+ *         @OA\JsonContent(
+ *             @OA\Property(property="sucesso", type="boolean", example=true),
+ *             @OA\Property(property="mensagem", type="string", example="Arquivo processado com sucesso."),
+ *             @OA\Property(property="dados", ref="#/components/schemas/ImportacaoResultado")
+ *         )
+ *     ),
+ *     @OA\Response(
+ *         response=400,
+ *         description="Requisição inválida (arquivo ausente, extensão incorreta, arquivo vazio, upload malformado)",
+ *         @OA\JsonContent(ref="#/components/schemas/RespostaErro")
+ *     ),
+ *     @OA\Response(
+ *         response=405,
+ *         description="Método diferente de POST",
+ *         @OA\JsonContent(ref="#/components/schemas/RespostaErro")
+ *     ),
+ *     @OA\Response(
+ *         response=500,
+ *         description="Erro interno no backend",
+ *         @OA\JsonContent(
+ *             @OA\Property(property="sucesso", type="boolean", example=false),
+ *             @OA\Property(property="mensagem", type="string", example="Erro interno no backend."),
+ *             @OA\Property(property="erro", type="string", example="mensagem técnica da exceção")
+ *         )
+ *     )
+ * )
+ */
+
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
@@ -130,14 +182,21 @@ function responder(int $status, array $dados): never
 
 function mensagemUpload(int $codigo): string
 {
-    return match ($codigo) {
-        UPLOAD_ERR_INI_SIZE,
-        UPLOAD_ERR_FORM_SIZE => 'O arquivo excede o tamanho permitido.',
-        UPLOAD_ERR_PARTIAL => 'O upload do arquivo foi interrompido.',
-        UPLOAD_ERR_NO_FILE => 'Nenhum arquivo foi enviado.',
-        UPLOAD_ERR_NO_TMP_DIR => 'Diretório temporário não disponível.',
-        UPLOAD_ERR_CANT_WRITE => 'Não foi possível gravar o arquivo temporário.',
-        UPLOAD_ERR_EXTENSION => 'Uma extensão do PHP interrompeu o upload.',
-        default => 'Erro desconhecido no upload.'
-    };
+    switch ($codigo) {
+        case UPLOAD_ERR_INI_SIZE:
+        case UPLOAD_ERR_FORM_SIZE:
+            return 'O arquivo excede o tamanho permitido.';
+        case UPLOAD_ERR_PARTIAL:
+            return 'O upload do arquivo foi interrompido.';
+        case UPLOAD_ERR_NO_FILE:
+            return 'Nenhum arquivo foi enviado.';
+        case UPLOAD_ERR_NO_TMP_DIR:
+            return 'Diretório temporário não disponível.';
+        case UPLOAD_ERR_CANT_WRITE:
+            return 'Não foi possível gravar o arquivo temporário.';
+        case UPLOAD_ERR_EXTENSION:
+            return 'Uma extensão do PHP interrompeu o upload.';
+        default:
+            return 'Erro desconhecido no upload.';
+    }
 }

@@ -1,0 +1,19 @@
+{
+    "name": "senai/importador-fiscal-iss",
+    "description": "API PHP para importação de notas fiscais (TXT), classificação de serviço e cálculo de ISS.",
+    "type": "project",
+    "require": {
+        "php": ">=7.4"
+    },
+    "require-dev": {
+        "zircote/swagger-php": "^4.11"
+    },
+    "autoload": {
+        "classmap": [
+            "src/backend/"
+        ]
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
