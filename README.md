@@ -4,19 +4,46 @@ API PHP que recebe um arquivo `.txt` com notas fiscais, classifica o serviço pr
 
 > Este projeto é uma evolução do exercício didático original de importação de clientes (SENAI). O histórico dessa versão anterior está preservado em [`README_original.md`](README_original.md).
 
+Este README **resume e consolida** todos os demais READMEs do repositório (`README_API.md`, `README_original.md`, `README_SWAGGER_CORRIGIDO.md` e `frontend/README.md`), servindo como ponto único de entrada para entender e rodar o projeto.
+
 ---
 
 ## Sumário
 
+- [Dependências](#dependências)
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Como cada parte funciona](#como-cada-parte-funciona)
 - [Fluxo de uma importação](#fluxo-de-uma-importação)
 - [Formato do arquivo TXT](#formato-do-arquivo-txt)
 - [Banco de dados](#banco-de-dados)
-- [Instalação](#instalação)
+- [Como estartar o projeto](#como-estartar-o-projeto)
 - [Documentação da API (Swagger / OpenAPI)](#documentação-da-api-swagger--openapi)
 - [Endpoints](#endpoints)
 - [Observação fiscal](#observação-fiscal)
+- [Resumo dos demais READMEs do repositório](#resumo-dos-demais-readmes-do-repositório)
+
+---
+
+## Dependências
+
+| Dependência | Versão / detalhe | Obrigatória? |
+|---|---|---|
+| **PHP** | `>= 7.4`, com extensão `mysqli` habilitada | Sim |
+| **MySQL / MariaDB** | Qualquer versão compatível com o dump em `BancoDeDados.sql` (banco `sistema`, `utf8mb4`) | Sim |
+| **Composer** | Gerenciador de dependências PHP | Sim (para gerar a doc Swagger) |
+| **`zircote/swagger-php`** `^4.11` | Gera o contrato OpenAPI a partir de anotações no código (declarada como `require-dev` no `composer.json`) | Só para a documentação Swagger |
+| **Servidor web** | Apache/XAMPP/WAMP **ou** o servidor embutido do PHP (`php -S`) | Sim (um dos dois) |
+| **Navegador** | Para usar o frontend de exemplo (`src/index.php`) e o Swagger UI (CDN, sem instalação) | Opcional |
+
+Não há dependências de frontend (Node/npm) — o cliente de exemplo é HTML + JavaScript puro, sem build step.
+
+Credenciais padrão de banco usadas em `src/conexao.php` (ajustar se necessário):
+```php
+$servername = 'localhost';
+$username   = 'root';
+$password   = '';
+$dbname     = 'sistema';
+```
 
 ---
 
@@ -30,6 +57,7 @@ ISS_back-main/
 ├── README.md                       # Este arquivo
 ├── README_API.md                   # Documentação de referência da API (complementar)
 ├── README_original.md              # Histórico do exercício didático original
+├── README_SWAGGER_CORRIGIDO.md     # Notas da correção do Swagger para PHP 7.4
 │
 ├── frontend/
 │   └── README.md                   # Observações sobre o cliente de exemplo
@@ -163,21 +191,43 @@ Tabelas criadas por `BancoDeDados.sql` (banco `sistema`):
 
 ---
 
-## Instalação
+## Como estartar o projeto
 
-1. Importe `BancoDeDados.sql` no MySQL/MariaDB.
-2. Confira usuário, senha e nome do banco em `src/conexao.php`.
-3. Instale as dependências PHP (necessário para o Swagger — veja a seção abaixo):
+1. **Banco de dados** — importe `BancoDeDados.sql` no MySQL/MariaDB:
+   ```bash
+   mysql -u root -p < BancoDeDados.sql
+   ```
+   Isso cria o banco `sistema` (em `utf8mb4`) com as tabelas acima.
+2. **Conexão** — confira usuário, senha e nome do banco em `src/conexao.php` (padrão: `localhost` / `root` / senha vazia / banco `sistema`).
+3. **Dependências PHP** — instale via Composer (necessário para o Swagger):
    ```bash
    composer install
    ```
-4. Coloque o projeto no seu servidor (Apache/XAMPP/WAMP) ou suba com o servidor embutido do PHP a partir da raiz do projeto:
+4. **Subir o servidor** — a partir da raiz do projeto (`ISS_back-main/`), use o servidor embutido do PHP:
    ```bash
    php -S localhost:8000
    ```
-5. Teste a API: `http://localhost:8000/src/api/health.php` deve responder um JSON.
-6. Abra `http://localhost:8000/src/index.php` para usar o frontend de exemplo.
+   (ou publique a pasta em Apache/XAMPP/WAMP).
+5. **Testar a API**:
+   ```text
+   http://localhost:8000/src/api/health.php
+   ```
+   deve responder um JSON confirmando que está no ar.
+6. **Usar o frontend de exemplo**:
+   ```text
+   http://localhost:8000/src/index.php
+   ```
 7. **Antes de usar em produção**, cadastre na tabela `servicos` as regras oficiais aplicáveis ao seu município — o registro de exemplo (`01.01`) é apenas demonstrativo.
+
+Exemplo de chamada direta ao endpoint de importação via `curl`:
+
+```bash
+curl -X POST \
+  -F "arquivo=@notas_teste_iss.txt" \
+  http://localhost:8000/src/api/importar.php
+```
+
+> Se o projeto for hospedado em um subdiretório do Apache/XAMPP (ex.: `C:\xampp\htdocs\ImportadorFiscalISS`), as URLs mudam de acordo — veja a seção [Correção de caminho no Apache/XAMPP](#correção-de-caminho-no-apachexampp) mais abaixo.
 
 ---
 
@@ -216,6 +266,8 @@ php src/api/gerar-swagger.php > src/api/openapi.json
 
 Depois, troque a `url` em `docs.html` de `gerar-swagger.php` para `openapi.json`.
 
+> **Nota de compatibilidade (PHP 7.4):** conforme `README_SWAGGER_CORRIGIDO.md`, houve um ajuste porque o Swagger UI estava recebendo apenas `{ "openapi": "3.0.0" }` — o analisador de anotações não conseguia montar corretamente os endpoints em PHP 7.4. `gerar-swagger.php` foi corrigido para retornar diretamente uma especificação OpenAPI 3.0 válida e completa (`info`, `servers`, `tags`, `paths`, `components.schemas`, além dos endpoints `GET /health.php` e `POST /importar.php`). O restante da lógica da API não foi alterado.
+
 ---
 
 ## Endpoints
@@ -227,18 +279,68 @@ Depois, troque a `url` em `docs.html` de `gerar-swagger.php` para `openapi.json`
 | `GET` | `/src/api/docs.html` | Documentação interativa (Swagger UI) |
 | `GET` | `/src/api/gerar-swagger.php` | Contrato OpenAPI em JSON |
 
-Exemplo de chamada ao endpoint principal:
+### Resposta de sucesso (`POST /importar.php`)
 
-```bash
-curl -X POST \
-  -F "arquivo=@notas_teste_iss.txt" \
-  http://localhost:8000/src/api/importar.php
+```json
+{
+    "sucesso": true,
+    "mensagem": "Arquivo processado com sucesso.",
+    "dados": {
+        "importacao_id": 1,
+        "arquivo": "notas_teste_iss.txt",
+        "status": "PROCESSADA",
+        "total_linhas": 5,
+        "total_processadas": 5,
+        "total_erros": 0,
+        "iss_total": 1537.54,
+        "erros": []
+    }
+}
 ```
 
-Mais detalhes de request/response (incluindo exemplo de resposta com erros de linha e configuração de CORS) estão em [`README_API.md`](README_API.md).
+Se alguma linha for inválida, a API continua processando as demais e registra as inválidas em `erros_importacao`; o `status` retornado é `PROCESSADA_COM_ERROS`.
+
+### Consumindo a API de qualquer frontend
+
+```javascript
+const formData = new FormData();
+formData.append('arquivo', arquivo);
+
+fetch('http://localhost:8000/src/api/importar.php', {
+    method: 'POST',
+    body: formData
+});
+```
+
+Não defina manualmente `Content-Type` ao usar `FormData` — o navegador cria o `multipart/form-data` com o boundary correto.
+
+### CORS
+
+Por padrão (`src/.htaccess` e nos endpoints PHP), a API permite:
+
+```http
+Access-Control-Allow-Origin: *
+```
+
+Isso facilita testes locais. **Em produção, substitua `*` pelo domínio real do frontend.**
+
+### Correção de caminho no Apache/XAMPP
+
+Se o projeto estiver em `C:\xampp\htdocs\ImportadorFiscalISS` e for acessado como `http://localhost/ImportadorFiscalISS/src/index.php`, a API correspondente deve ser chamada em `http://localhost/ImportadorFiscalISS/src/api/importar.php` (o frontend de exemplo já vem configurado com esse caminho). Primeiro teste recomendado: `http://localhost/ImportadorFiscalISS/src/api/health.php`, que deve retornar JSON. A API também captura erros do PHP e tenta devolvê-los em JSON, evitando que erros comuns apareçam para o frontend como uma página HTML iniciada por `<!DOCTYPE`.
 
 ---
 
 ## Observação fiscal
 
-O registro de exemplo `01.01` na tabela `servicos` é apenas demonstrativo. A aplicação foi construída para manter NBS, indOp e cClassTrib associados ao serviço, mas esses campos não devem ser preenchidos com valores presumidos. Para produção, carregue os dados oficiais da base normativa/documental utilizada pelo seu município.
+O registro de exemplo `01.01` na tabela `servicos` é apenas demonstrativo. A aplicação foi construída para manter NBS, indOp e cClassTrib associados ao serviço, mas esses campos não devem ser preenchidos com valores presumidos. Para produção, carregue os dados oficiais da base normativa/documental utilizada pelo seu município. O cadastro de `servicos` do SQL contém somente um registro demonstrativo para teste — as regras devem ser carregadas da base oficial correspondente ao município e à legislação aplicável, e o código não deve assumir uma alíquota fixa para todos os serviços.
+
+---
+
+## Resumo dos demais READMEs do repositório
+
+Esta seção resume, em poucas linhas, o conteúdo de cada README adicional presente no projeto — os detalhes completos já foram incorporados nas seções acima.
+
+- **`README_API.md`** — Documentação de referência focada só na API: separa as responsabilidades entre frontend e backend/API, detalha o endpoint `POST /importar.php` (request, resposta de sucesso, resposta com erros), a regra de responsabilidade de cada classe (API, `ImportadorTxt`, `ClassificadorServico`, `CalculadoraIss`, Banco), como consumir a API de outro frontend (Angular/React/Vue), a política de CORS e a observação sobre caminhos ao rodar em Apache/XAMPP.
+- **`README_SWAGGER_CORRIGIDO.md`** — Explica a correção feita no Swagger para funcionar em PHP 7.4: antes o `gerar-swagger.php` devolvia só `{ "openapi": "3.0.0" }` pois o parser de anotações não montava os endpoints corretamente nessa versão do PHP; a correção faz o arquivo retornar diretamente uma especificação OpenAPI 3.0 completa (info, servers, tags, paths, schemas), sem alterar o restante da lógica da API. Lista também os endereços de Swagger UI, especificação OpenAPI, healthcheck e importação.
+- **`README_original.md`** — Histórico do projeto anterior (`ArquivosParaBanco`), o exercício didático do SENAI do qual este projeto evoluiu: uma aplicação PHP simples para importar **clientes** (não notas fiscais) de um `.txt` para uma tabela `clientes` no MySQL, com validação linha a linha. Documenta requisitos (PHP 7.4+ com `mysqli`, MySQL/MariaDB), estrutura de pastas da versão antiga e os passos originais de instalação (criar banco, configurar `conexao.php`, subir servidor).
+- **`frontend/README.md`** — Nota curta: o diretório `frontend/` representa conceitualmente o frontend do sistema; o exemplo funcional de fato está em `src/index.php`, e toda comunicação com o backend deve ocorrer exclusivamente via HTTP contra `src/api/importar.php`.
