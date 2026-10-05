@@ -16,6 +16,7 @@ php -S localhost:8000
 - Especificação OpenAPI: http://localhost:8000/src/api/gerar-swagger.php
 - Healthcheck: http://localhost:8000/src/api/health.php
 - Importação: POST http://localhost:8000/src/api/importar.php
+- Histórico: GET http://localhost:8000/src/api/historico.php (lista) e `?id={id}` (detalhe)
 
 ## O que foi corrigido
 
@@ -30,5 +31,10 @@ O Swagger UI estava recebendo apenas `{ "openapi": "3.0.0" }`, porque o analisad
 - `components.schemas`
 - GET `/src/api/health.php`
 - POST `/src/api/importar.php`
+- GET `/src/api/historico.php`
 
 O restante da lógica da API não foi alterado.
+
+## Ao criar ou alterar endpoints
+
+O Swagger exibido vem **apenas** do array em `src/api/gerar-swagger.php`. As anotações `@OA` nos arquivos PHP não são lidas. Sempre que um endpoint mudar, atualize esse array.

@@ -100,6 +100,82 @@ Se ocorrer um erro inesperado (ex.: falha de banco), a API responde HTTP `500`, 
 
 A nota é identificada por **prestador + número + série**. Reenviar uma nota já importada **atualiza** o registro existente (valores, data, tomador, serviço e `importacao_id`), em vez de duplicá-la. A mesma nota repetida **dentro de um mesmo arquivo** é rejeitada como erro de linha.
 
+## Histórico de importações
+
+```http
+GET /src/api/historico.php
+GET /src/api/historico.php?id={id}
+```
+
+### Lista
+
+Parâmetros de query, todos opcionais:
+
+| Parâmetro | Descrição |
+|---|---|
+| `status` | `PROCESSADA`, `PROCESSADA_COM_ERROS` ou `ERRO` |
+| `arquivo` | trecho do nome do arquivo |
+| `data_inicio` / `data_fim` | data da importação, `YYYY-MM-DD`, inclusivas |
+| `pagina` | padrão `1` |
+| `por_pagina` | padrão `20`, máximo `100` |
+
+```bash
+curl "http://localhost/ImportadorFiscalISS/src/api/historico.php?status=PROCESSADA&pagina=1"
+```
+
+```json
+{
+    "sucesso": true,
+    "dados": {
+        "importacoes": [
+            {
+                "id": 1,
+                "arquivo": "notas_teste_iss.txt",
+                "data_importacao": "2026-10-05 14:30:00",
+                "status": "PROCESSADA",
+                "total_linhas": 5,
+                "total_processadas": 5,
+                "total_erros": 0,
+                "iss_total": 1537.54
+            }
+        ],
+        "paginacao": {
+            "pagina": 1,
+            "por_pagina": 20,
+            "total_registros": 1,
+            "total_paginas": 1
+        },
+        "resumo": {
+            "iss_total": 1537.54
+        }
+    }
+}
+```
+
+`resumo.iss_total` soma **todas** as importações que atendem aos filtros, não só as da página.
+
+### Detalhe
+
+```bash
+curl "http://localhost/ImportadorFiscalISS/src/api/historico.php?id=1"
+```
+
+Retorna os mesmos campos da lista e mais:
+
+- `notas`: cada nota com `numero`, `serie`, `data_emissao`, `prestador` (`cnpj`, `razao_social`), `tomador` (`cpf_cnpj`, `razao_social`, ou `null`), `servico` (`codigo_lc116`, `descricao`), `municipio_prestacao`, `valor_servico`, `base_calculo`, `aliquota_iss`, `valor_iss` e `status`;
+- `erros`: no mesmo formato do `importar.php` (`linha`, `mensagem`, `original`).
+
+Como uma nota reimportada passa a pertencer à importação mais recente, o detalhe de uma importação antiga lista apenas as notas que ainda apontam para ela.
+
+### Erros
+
+| HTTP | Quando |
+|---|---|
+| `400` | parâmetro inválido (status desconhecido, data inexistente, `data_inicio` > `data_fim`, `por_pagina` fora de 1–100...) |
+| `404` | `id` não encontrado |
+| `405` | método diferente de `GET` |
+| `500` | erro interno (só a mensagem genérica; o detalhe fica no log do PHP) |
+
 ## Regra de responsabilidade
 
 ### API
@@ -124,6 +200,10 @@ Responsável por:
 - inserir notas;
 - registrar erros;
 - finalizar a importação.
+
+### HistoricoImportacoes
+
+Responsável por consultar as importações, suas notas e erros, com filtros e paginação.
 
 ### ClassificadorServico
 

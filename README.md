@@ -46,12 +46,14 @@ ISS_back-main/
     ├── api/                        # Camada HTTP (o que fica exposto na web)
     │   ├── health.php               # GET  — healthcheck da API
     │   ├── importar.php             # POST — recebe o TXT, processa e retorna JSON
+    │   ├── historico.php            # GET  — histórico das importações (lista e detalhe)
     │   ├── openapi.php              # Anotações OpenAPI globais (Info/Servers/Schemas)
     │   ├── gerar-swagger.php        # Gera o contrato openapi.json a partir das anotações
     │   └── docs.html                # Swagger UI, consome gerar-swagger.php
     │
     └── backend/                    # Regras de negócio (não é acessado diretamente pela web)
         ├── ImportadorTxt.php        # Orquestra a importação linha a linha
+        ├── HistoricoImportacoes.php # Consultas do histórico de importações
         ├── ClassificadorServico.php # Busca a regra de serviço (LC116) no banco
         └── CalculadoraIss.php       # Calcula base de cálculo e valor do ISS
 ```
@@ -72,6 +74,16 @@ Endpoint `POST` principal. Responsabilidades:
 3. Valida a requisição: método HTTP, presença do arquivo, extensão `.txt`, se é realmente um upload válido, se não está vazio.
 4. Instancia `ImportadorTxt` (injetando a conexão, o `ClassificadorServico` e a `CalculadoraIss`) e chama `processar()`.
 5. Formata o resultado em JSON e responde.
+
+### `src/api/historico.php`
+Endpoint `GET` de consulta, funciona como o histórico de transações da API:
+- **sem `id`** — lista paginada das importações (mais recentes primeiro), com filtros opcionais por `status`, `arquivo`, `data_inicio` e `data_fim`, e o ISS total de tudo que atende aos filtros;
+- **com `id`** — detalhe de uma importação, com as notas gravadas (prestador, tomador, serviço, valores e ISS) e os erros de linha.
+
+Valida os parâmetros (400 se inválidos, 404 se o `id` não existir) e delega as consultas para `HistoricoImportacoes`. Em erro interno, responde só uma mensagem genérica; o detalhe técnico vai para o log do PHP.
+
+### `src/backend/HistoricoImportacoes.php`
+Monta as consultas do histórico com prepared statements (filtros dinâmicos, paginação via `LIMIT/OFFSET`) e formata a resposta com os tipos corretos (números como número, tomador `null` quando a nota não tem tomador).
 
 ### `src/backend/ImportadorTxt.php`
 O coração da regra de negócio. Para cada linha do TXT:
@@ -206,10 +218,10 @@ A API é documentada com **OpenAPI 3**, usando anotações [`zircote/swagger-php
 | `src/api/openapi.php` | Anotações globais: `@OA\Info`, `@OA\Server`, `@OA\Tag` e os `@OA\Schema` reutilizáveis (`ImportacaoResultado`, `ErroLinha`, `RespostaErro`). |
 | `src/api/health.php` | Anotação `@OA\Get` descrevendo o endpoint de healthcheck. |
 | `src/api/importar.php` | Anotação `@OA\Post` descrevendo o upload (`multipart/form-data`) e as respostas possíveis (200/400/405/500). |
-| `src/api/gerar-swagger.php` | Faz o *scan* de `src/` e monta o contrato OpenAPI em JSON. |
+| `src/api/gerar-swagger.php` | Devolve o contrato OpenAPI em JSON, montado **manualmente** como array PHP (veja [`README_SWAGGER_CORRIGIDO.md`](README_SWAGGER_CORRIGIDO.md)). |
 | `src/api/docs.html` | Carrega o Swagger UI (via CDN) e aponta para `gerar-swagger.php` como fonte do contrato. |
 
-Ou seja: a documentação **nasce do próprio código**. Sempre que um endpoint muda (novo parâmetro, novo status de resposta, etc.), basta atualizar a anotação `@OA\...` correspondente — não existe um arquivo `.yaml` separado para ficar desatualizado.
+> **Atenção:** como o scan de anotações não funciona no PHP 7.4, o Swagger exibido vem do array em `gerar-swagger.php`, não das anotações `@OA`. Ao criar ou alterar um endpoint, **atualize `gerar-swagger.php`** — é ele que aparece em `docs.html`. O `historico.php` está documentado apenas lá.
 
 ### Como visualizar
 
@@ -218,7 +230,7 @@ Ou seja: a documentação **nasce do próprio código**. Sempre que um endpoint 
    ```text
    http://localhost:8000/src/api/docs.html
    ```
-3. A página carrega o Swagger UI, que busca `gerar-swagger.php`, que por sua vez escaneia o código e devolve o `openapi.json` na hora. Dá para testar os endpoints direto por ali ("Try it out").
+3. A página carrega o Swagger UI, que busca o contrato em `gerar-swagger.php`. Dá para testar os endpoints direto por ali ("Try it out").
 
 ### Gerando um `openapi.json` estático (opcional)
 
@@ -238,6 +250,8 @@ Depois, troque a `url` em `docs.html` de `gerar-swagger.php` para `openapi.json`
 |---|---|---|
 | `GET` | `/src/api/health.php` | Healthcheck da API |
 | `POST` | `/src/api/importar.php` | Upload e processamento do TXT (campo `arquivo`) |
+| `GET` | `/src/api/historico.php` | Lista paginada das importações (filtros: `status`, `arquivo`, `data_inicio`, `data_fim`, `pagina`, `por_pagina`) |
+| `GET` | `/src/api/historico.php?id={id}` | Detalhe de uma importação, com notas e erros de linha |
 | `GET` | `/src/api/docs.html` | Documentação interativa (Swagger UI) |
 | `GET` | `/src/api/gerar-swagger.php` | Contrato OpenAPI em JSON |
 
@@ -247,6 +261,16 @@ Exemplo de chamada ao endpoint principal:
 curl -X POST \
   -F "arquivo=@notas_teste_iss.txt" \
   http://localhost:8000/src/api/importar.php
+```
+
+Consultando o histórico:
+
+```bash
+# importações com erro de linha em outubro/2026, 10 por página
+curl "http://localhost:8000/src/api/historico.php?status=PROCESSADA_COM_ERROS&data_inicio=2026-10-01&data_fim=2026-10-31&por_pagina=10"
+
+# detalhe da importação 1
+curl "http://localhost:8000/src/api/historico.php?id=1"
 ```
 
 Mais detalhes de request/response (incluindo exemplo de resposta com erros de linha e configuração de CORS) estão em [`README_API.md`](README_API.md).
