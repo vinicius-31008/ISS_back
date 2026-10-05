@@ -73,6 +73,33 @@ O status será:
 PROCESSADA_COM_ERROS
 ```
 
+Cada linha roda dentro de um `SAVEPOINT`: se ela falhar, nada dela fica gravado (nem prestador, nem tomador).
+
+Exemplo de erros de linha:
+
+```json
+"erros": [
+    {
+        "linha": 3,
+        "mensagem": "data inválida: use uma data existente em YYYY-MM-DD ou YYYY-MM-DD HH:MM:SS.",
+        "original": "1003;A;2026-02-31;..."
+    },
+    {
+        "linha": 6,
+        "mensagem": "nota 1001/A do prestador 12345678000190 repetida no arquivo (já informada na linha 1).",
+        "original": "1001;A;2026-08-20;12345678000190;..."
+    }
+]
+```
+
+## Falha geral
+
+Se ocorrer um erro inesperado (ex.: falha de banco), a API responde HTTP `500`, toda a importação é desfeita e a tentativa fica registrada na tabela `importacoes` com status `ERRO`.
+
+## Reimportação
+
+A nota é identificada por **prestador + número + série**. Reenviar uma nota já importada **atualiza** o registro existente (valores, data, tomador, serviço e `importacao_id`), em vez de duplicá-la. A mesma nota repetida **dentro de um mesmo arquivo** é rejeitada como erro de linha.
+
 ## Regra de responsabilidade
 
 ### API
@@ -91,6 +118,7 @@ Responsável por:
 - separar linhas;
 - validar campos;
 - localizar serviço;
+- rejeitar notas repetidas no mesmo arquivo;
 - obter prestador/tomador;
 - calcular ISS;
 - inserir notas;
@@ -150,6 +178,9 @@ Exemplo:
 ```text
 1001;A;2026-08-20;12345678000190;Empresa Exemplo Ltda;98765432000110;Cliente Exemplo Ltda;01.01;3550407;10000,00
 ```
+
+- `data_emissao`: `YYYY-MM-DD` ou `YYYY-MM-DD HH:MM:SS`, precisa ser uma data existente. Sem hora, grava `00:00:00`.
+- `valor_servico`: até 2 casas decimais; aceita `1000,50`, `1.000,50` e `1000.50`.
 
 ## Observação fiscal
 

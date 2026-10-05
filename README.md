@@ -16,6 +16,7 @@ API PHP que recebe um arquivo `.txt` com notas fiscais, classifica o serviço pr
 - [Instalação](#instalação)
 - [Documentação da API (Swagger / OpenAPI)](#documentação-da-api-swagger--openapi)
 - [Endpoints](#endpoints)
+- [Histórico de correções](#histórico-de-correções)
 - [Observação fiscal](#observação-fiscal)
 
 ---
@@ -26,6 +27,8 @@ API PHP que recebe um arquivo `.txt` com notas fiscais, classifica o serviço pr
 ISS_back-main/
 ├── composer.json                  # Dependências PHP (swagger-php para gerar a doc)
 ├── BancoDeDados.sql                # Script de criação do schema MySQL
+├── migracoes/                      # Scripts para atualizar bancos já existentes
+│   └── 001_chave_unica_notas.sql
 ├── notas_teste_iss.txt             # Arquivo de exemplo para testar a importação
 ├── README.md                       # Este arquivo
 ├── README_API.md                   # Documentação de referência da API (complementar)
@@ -73,13 +76,19 @@ Endpoint `POST` principal. Responsabilidades:
 ### `src/backend/ImportadorTxt.php`
 O coração da regra de negócio. Para cada linha do TXT:
 - faz o parse dos 10 campos (`str_getcsv` com `;`);
-- valida formato, tamanho de CNPJ/CPF, valor numérico, data e código IBGE;
+- valida formato, tamanho de CNPJ/CPF, valor, data (precisa ser uma data existente) e código IBGE;
+- rejeita a linha se a mesma nota (prestador + número + série) já apareceu antes no arquivo;
 - pergunta ao `ClassificadorServico` se o `codigo_lc116` está cadastrado e ativo;
 - pede à `CalculadoraIss` o cálculo do imposto;
 - grava (ou atualiza, via `ON DUPLICATE KEY`) o prestador, o tomador e a nota;
 - linhas com erro **não interrompem o processo** — são coletadas e registradas em `erros_importacao`, e a importação termina com status `PROCESSADA_COM_ERROS`.
 
-Toda a operação roda dentro de uma transação (`mysqli_begin_transaction` / `commit` / `rollback`): se algo inesperado quebrar no meio (não um erro de linha, mas uma falha real), nada fica gravado pela metade.
+Toda a operação roda dentro de uma transação (`mysqli_begin_transaction` / `commit` / `rollback`), com um `SAVEPOINT` por linha:
+
+- se uma linha falha no meio (ex.: o prestador já foi gravado, mas a nota não), a linha é desfeita até o savepoint e nada dela fica no banco;
+- se algo inesperado quebrar (não um erro de linha, mas uma falha real), a transação inteira é desfeita e a tentativa fica registrada em `importacoes` com status `ERRO`.
+
+**Reimportação:** a nota é identificada por prestador + número + série. Reenviar uma nota que já existe **atualiza** o registro (valores, data, tomador, serviço e a importação a que ela pertence) em vez de criar uma duplicata.
 
 ### `src/backend/ClassificadorServico.php`
 Classe pequena e única responsabilidade: dado um `codigo_lc116`, busca na tabela `servicos` a descrição, NBS, indicador de operação, cClassTrib e a alíquota cadastrada.
@@ -113,13 +122,16 @@ src/api/importar.php
 ImportadorTxt::processar()
    |
    +-- para cada linha do TXT:
-   |     +-- valida os 10 campos
+   |     +-- SAVEPOINT
+   |     +-- valida os 10 campos e duplicidade no arquivo
    |     +-- ClassificadorServico::buscar(codigo_lc116)
    |     +-- CalculadoraIss::calcular(valor, aliquota)
-   |     +-- grava prestador / tomador / nota
-   |     +-- (em erro) registra em erros_importacao, segue para a próxima linha
+   |     +-- grava prestador / tomador / nota (insere ou atualiza)
+   |     +-- (em erro) ROLLBACK TO SAVEPOINT, registra em erros_importacao,
+   |         segue para a próxima linha
    |
-   +-- finaliza a importação (totais, status)
+   +-- finaliza a importação (totais, status) e faz COMMIT
+   +-- (falha geral) ROLLBACK e registra a importação com status ERRO
    v
 Resposta JSON (sucesso, dados, erros[])
 ```
@@ -146,8 +158,9 @@ Exemplo:
 | `cnpj_prestador` | 14 dígitos após remover pontuação |
 | `documento_tomador` | opcional; se preenchido, 11 (CPF) ou 14 (CNPJ) dígitos |
 | `municipio_ibge` | opcional; se preenchido, código IBGE de 7 dígitos |
-| `data_emissao` | `YYYY-MM-DD` ou `YYYY-MM-DD HH:MM:SS` |
-| `valor_servico` | numérico, usa `,` como separador decimal |
+| `data_emissao` | `YYYY-MM-DD` ou `YYYY-MM-DD HH:MM:SS`; precisa ser uma data existente (`2026-02-31` é rejeitada). Sem hora, grava `00:00:00` |
+| `valor_servico` | até 2 casas decimais. Aceita `1000,50`, `1.000,50` (ponto como milhar) e `1000.50` (ponto como decimal). `1.000` sem vírgula é lido como mil |
+| `numero` + `serie` | não podem se repetir para o mesmo prestador dentro do arquivo |
 
 ---
 
@@ -155,10 +168,10 @@ Exemplo:
 
 Tabelas criadas por `BancoDeDados.sql` (banco `sistema`):
 
-- **`importacoes`** — um registro por upload processado (totais, ISS total, status).
+- **`importacoes`** — um registro por upload (totais, ISS total, status `PROCESSADA`, `PROCESSADA_COM_ERROS` ou `ERRO`).
 - **`prestadores`** / **`tomadores`** — cadastro deduplicado por CNPJ/CPF (`UNIQUE KEY`, upsert via `ON DUPLICATE KEY`).
 - **`servicos`** — tabela de regras: código LC116, NBS, indOp, cClassTrib e alíquota. É nela que o `ClassificadorServico` busca.
-- **`notas`** — uma linha por nota fiscal importada, com valor, base de cálculo, alíquota aplicada e ISS calculado.
+- **`notas`** — uma linha por nota fiscal, única por `(prestador_id, numero, serie)`, com valor, base de cálculo, alíquota aplicada e ISS calculado. `importacao_id` aponta para a última importação que gravou a nota.
 - **`erros_importacao`** — uma linha por erro de parsing/validação, vinculada à importação.
 
 ---
@@ -166,6 +179,7 @@ Tabelas criadas por `BancoDeDados.sql` (banco `sistema`):
 ## Instalação
 
 1. Importe `BancoDeDados.sql` no MySQL/MariaDB.
+   - **Já tem o banco criado com a versão anterior?** Faça backup e rode `migracoes/001_chave_unica_notas.sql` uma única vez. Ele troca a chave única de `notas` e **apaga notas duplicadas por reimportação, mantendo a mais recente** (o script traz uma consulta para conferir antes).
 2. Confira usuário, senha e nome do banco em `src/conexao.php`.
 3. Instale as dependências PHP (necessário para o Swagger — veja a seção abaixo):
    ```bash
@@ -236,6 +250,25 @@ curl -X POST \
 ```
 
 Mais detalhes de request/response (incluindo exemplo de resposta com erros de linha e configuração de CORS) estão em [`README_API.md`](README_API.md).
+
+---
+
+## Histórico de correções
+
+Correções no `ImportadorTxt` e no schema:
+
+| Problema | Antes | Agora |
+|---|---|---|
+| Hora da data de emissão | `2026-08-20` era gravada com a hora atual do servidor | Gravada como `2026-08-20 00:00:00` |
+| Datas impossíveis | `2026-02-31` virava `2026-03-03` sem aviso | Linha rejeitada com erro |
+| Reimportação | Reenviar o arquivo duplicava todas as notas | A nota existente é atualizada (chave `prestador + numero + serie`) |
+| Mesma nota de prestadores diferentes | Colidiam: a segunda sobrescrevia a primeira e o ISS era somado duas vezes | Notas distintas, cada uma com seu prestador |
+| Nota repetida no mesmo arquivo | Sobrescrevia a anterior e somava o ISS em dobro | Linha rejeitada, apontando a linha original |
+| Valor com milhar (`1.000,50`) | Rejeitado como inválido | Aceito |
+| Falha no meio de uma linha | Prestador/tomador ficavam gravados mesmo com a linha rejeitada | `SAVEPOINT` por linha desfaz tudo da linha |
+| Falha geral da importação | O rollback apagava qualquer rastro da tentativa | Registrada em `importacoes` com status `ERRO` |
+
+Bancos existentes precisam da migração `migracoes/001_chave_unica_notas.sql` (veja [Instalação](#instalação)).
 
 ---
 
