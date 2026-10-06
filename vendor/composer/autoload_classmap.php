@@ -10,6 +10,7 @@ return array(
     'CalculadoraIss' => $baseDir . '/src/backend/CalculadoraIss.php',
     'ClassificadorServico' => $baseDir . '/src/backend/ClassificadorServico.php',
     'Composer\\InstalledVersions' => $vendorDir . '/composer/InstalledVersions.php',
+    'HistoricoImportacoes' => $baseDir . '/src/backend/HistoricoImportacoes.php',
     'ImportadorTxt' => $baseDir . '/src/backend/ImportadorTxt.php',
     'OpenApi\\Analysers\\AnalyserInterface' => $vendorDir . '/zircote/swagger-php/src/Analysers/AnalyserInterface.php',
     'OpenApi\\Analysers\\AnnotationFactoryInterface' => $vendorDir . '/zircote/swagger-php/src/Analysers/AnnotationFactoryInterface.php',
