@@ -12,7 +12,8 @@ declare(strict_types=1);
  *     path="/src/api/importar.php",
  *     tags={"Importação"},
  *     summary="Importa um arquivo TXT de notas fiscais e calcula o ISS",
- *     description="Recebe um arquivo TXT (multipart/form-data), valida e processa linha a linha: classifica o serviço pelo código LC116, calcula o ISS devido e grava a importação, as notas e eventuais erros de linha no MySQL.",
+ *     description="Recebe um arquivo TXT (multipart/form-data), valida e processa linha a linha: classifica o serviço pelo código LC116, calcula o ISS devido e grava a importação, as notas e eventuais erros de linha no MySQL. Os registros ficam vinculados à empresa do usuário autenticado.",
+ *     security={{"bearerAuth": {}}},
  *     @OA\RequestBody(
  *         required=true,
  *         @OA\MediaType(
@@ -40,6 +41,11 @@ declare(strict_types=1);
  *     @OA\Response(
  *         response=400,
  *         description="Requisição inválida (arquivo ausente, extensão incorreta, arquivo vazio, upload malformado)",
+ *         @OA\JsonContent(ref="#/components/schemas/RespostaErro")
+ *     ),
+ *     @OA\Response(
+ *         response=401,
+ *         description="Token ausente, inválido ou expirado",
  *         @OA\JsonContent(ref="#/components/schemas/RespostaErro")
  *     ),
  *     @OA\Response(
@@ -90,9 +96,26 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require __DIR__ . '/../conexao.php';
+require __DIR__ . '/../backend/Autenticacao.php';
 require __DIR__ . '/../backend/CalculadoraIss.php';
 require __DIR__ . '/../backend/ClassificadorServico.php';
 require __DIR__ . '/../backend/ImportadorTxt.php';
+
+$sessao = (new Autenticacao($con))->usuarioDoToken(Autenticacao::tokenDaRequisicao());
+
+if ($sessao === null) {
+    responder(401, [
+        'sucesso' => false,
+        'mensagem' => 'Não autenticado. Faça login e envie o token no cabeçalho Authorization: Bearer <token>.'
+    ]);
+}
+
+if ($sessao['usuario']['trocar_senha']) {
+    responder(403, [
+        'sucesso' => false,
+        'mensagem' => Autenticacao::MENSAGEM_TROCAR_SENHA
+    ]);
+}
 
 if (!isset($_FILES['arquivo'])) {
     responder(400, [
@@ -149,7 +172,12 @@ $importador = new ImportadorTxt(
     new CalculadoraIss()
 );
 
-$resultado = $importador->processar($nomeOriginal, $conteudo);
+$resultado = $importador->processar(
+    $sessao['empresa']['id'],
+    $sessao['usuario']['id'],
+    $nomeOriginal,
+    $conteudo
+);
 
 responder(200, [
     'sucesso' => true,

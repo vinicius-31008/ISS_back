@@ -34,6 +34,35 @@
 
         <hr><br>
 
+        <div id="areaLogin">
+            <label for="email"><strong>E-mail:</strong></label>
+            <input type="text" id="email" autocomplete="username">
+
+            <label for="senha"><strong>Senha:</strong></label>
+            <input type="password" id="senha" autocomplete="current-password">
+
+            <button type="button" onclick="entrar()">Entrar</button>
+        </div>
+
+        <div id="areaSessao" style="display: none">
+            <p id="sessaoInfo"></p>
+            <button type="button" onclick="sair()">Sair</button>
+        </div>
+
+        <div id="areaTrocarSenha" style="display: none">
+            <div class="info">Senha provisória: defina uma nova senha para continuar.</div>
+
+            <label for="senhaAtual"><strong>Senha atual:</strong></label>
+            <input type="password" id="senhaAtual" autocomplete="current-password">
+
+            <label for="novaSenha"><strong>Nova senha (8 a 72 caracteres):</strong></label>
+            <input type="password" id="novaSenha" autocomplete="new-password">
+
+            <button type="button" onclick="trocarSenha()">Trocar senha</button>
+        </div>
+
+        <hr><br>
+
         <label for="arquivo"><strong>Arquivo TXT:</strong></label>
         <input type="file" id="arquivo" accept=".txt">
 
@@ -45,6 +74,129 @@
     </div>
 
 <script>
+// Sessão do login (token + usuário/empresa), guardada só enquanto a aba estiver aberta.
+let sessao = lerSessaoSalva();
+mostrarSessao();
+
+function urlIrma(arquivoPhp) {
+    const apiUrl = document.getElementById('apiUrl').value.trim();
+    return apiUrl.replace(/\/importar\.php(\?.*)?$/i, '/' + arquivoPhp);
+}
+
+function lerSessaoSalva() {
+    try {
+        return JSON.parse(sessionStorage.getItem('sessaoIss')) || null;
+    } catch {
+        return null;
+    }
+}
+
+function salvarSessao(novaSessao) {
+    sessao = novaSessao;
+    try {
+        if (sessao) {
+            sessionStorage.setItem('sessaoIss', JSON.stringify(sessao));
+        } else {
+            sessionStorage.removeItem('sessaoIss');
+        }
+    } catch {
+        // Sem sessionStorage a sessão vale só até recarregar a página.
+    }
+    mostrarSessao();
+}
+
+function mostrarSessao() {
+    document.getElementById('areaLogin').style.display = sessao ? 'none' : '';
+    document.getElementById('areaSessao').style.display = sessao ? '' : 'none';
+    // Com senha provisória a API recusa tudo além da troca de senha.
+    const trocarSenhaPendente = Boolean(sessao && sessao.usuario.trocar_senha);
+    document.getElementById('areaTrocarSenha').style.display = trocarSenhaPendente ? '' : 'none';
+    document.getElementById('btnProcessar').disabled = !sessao || trocarSenhaPendente;
+
+    if (sessao) {
+        document.getElementById('sessaoInfo').innerHTML =
+            `Conectado como <strong>${escapeHtml(sessao.usuario.nome)}</strong> — ` +
+            `${escapeHtml(sessao.empresa.razao_social)} (CNPJ ${escapeHtml(sessao.empresa.cnpj)})`;
+    }
+}
+
+async function entrar() {
+    const resultado = document.getElementById('resultado');
+    const email = document.getElementById('email').value.trim();
+    const senha = document.getElementById('senha').value;
+
+    try {
+        const resposta = await fetch(urlIrma('login.php'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, senha })
+        });
+        const dados = await lerJson(resposta);
+
+        if (!resposta.ok || !dados.sucesso) {
+            throw new Error(dados.mensagem || 'Falha no login.');
+        }
+
+        document.getElementById('senha').value = '';
+        salvarSessao(dados.dados);
+        resultado.innerHTML = '';
+    } catch (erro) {
+        resultado.innerHTML = `<div class="erro"><strong>Login:</strong> ${escapeHtml(erro.message)}</div>`;
+    }
+}
+
+async function trocarSenha() {
+    const resultado = document.getElementById('resultado');
+
+    try {
+        const resposta = await fetch(urlIrma('trocar-senha.php'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + sessao.token
+            },
+            body: JSON.stringify({
+                senha_atual: document.getElementById('senhaAtual').value,
+                nova_senha: document.getElementById('novaSenha').value
+            })
+        });
+        const dados = await lerJson(resposta);
+
+        if (!resposta.ok || !dados.sucesso) {
+            throw new Error(dados.mensagem || 'Falha ao trocar a senha.');
+        }
+
+        document.getElementById('senhaAtual').value = '';
+        document.getElementById('novaSenha').value = '';
+        salvarSessao({ ...sessao, usuario: { ...sessao.usuario, trocar_senha: false } });
+        resultado.innerHTML = '<div class="sucesso">Senha alterada.</div>';
+    } catch (erro) {
+        resultado.innerHTML = `<div class="erro"><strong>Troca de senha:</strong> ${escapeHtml(erro.message)}</div>`;
+    }
+}
+
+async function sair() {
+    try {
+        await fetch(urlIrma('logout.php'), {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + sessao.token }
+        });
+    } catch {
+        // Mesmo sem resposta da API, a sessão local é descartada.
+    }
+    salvarSessao(null);
+}
+
+async function lerJson(resposta) {
+    const texto = await resposta.text();
+    try {
+        return JSON.parse(texto);
+    } catch {
+        console.error('Resposta bruta recebida da API:', texto);
+        throw new Error(`A API não retornou JSON (HTTP ${resposta.status}). Verifique a URL do endpoint.`);
+    }
+}
+
 async function testarApi() {
     const apiUrl = document.getElementById('apiUrl').value.trim();
     const healthUrl = apiUrl.replace(/\/importar\.php(\?.*)?$/i, '/health.php');
@@ -97,6 +249,11 @@ async function enviarArquivo() {
         return;
     }
 
+    if (!sessao) {
+        resultado.innerHTML = '<div class="erro">Faça login antes de enviar o arquivo.</div>';
+        return;
+    }
+
     if (!input.files.length) {
         resultado.innerHTML = '<div class="erro">Selecione um arquivo TXT.</div>';
         return;
@@ -118,8 +275,14 @@ async function enviarArquivo() {
     try {
         const resposta = await fetch(apiUrl, {
             method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + sessao.token },
             body: formData
         });
+
+        if (resposta.status === 401) {
+            // Token expirado ou inválido: volta para a tela de login.
+            salvarSessao(null);
+        }
 
         // Primeiro lemos como texto.
         // Assim, se Apache/PHP retornar HTML, não teremos
@@ -191,7 +354,7 @@ async function enviarArquivo() {
             </div>
         `;
     } finally {
-        botao.disabled = false;
+        botao.disabled = !sessao || Boolean(sessao.usuario.trocar_senha);
     }
 }
 

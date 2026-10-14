@@ -23,11 +23,162 @@ BACKEND / API
 
 O backend não depende do HTML para processar o arquivo.
 
-## Endpoint
+## Empresas, usuários e autenticação
+
+Cada **usuário** pertence a uma **empresa**. Tudo o que é importado fica vinculado à empresa do usuário que fez a importação:
+
+- `importacoes.empresa_id` (e `importacoes.usuario_id`, quem importou);
+- `prestadores` e `tomadores` são cadastrados por empresa (chave única `empresa_id + CNPJ`);
+- notas e erros de linha pertencem à empresa por meio do prestador e da importação.
+
+Assim, a mesma nota pode ser importada por duas empresas sem colidir, e o histórico de uma empresa nunca mostra dados de outra.
+
+### Perfis
+
+| Perfil | Pode |
+|---|---|
+| `ADMIN` | tudo, inclusive gerenciar empresas e usuários (`empresas.php`, `usuarios.php`) de qualquer empresa |
+| `USUARIO` | importar e consultar o histórico da própria empresa |
+
+### Primeiro acesso: administrador padrão
+
+Enquanto o banco **não tiver nenhum usuário**, o login cria automaticamente um administrador padrão, definido em [src/backend/UsuarioPadrao.php](src/backend/UsuarioPadrao.php):
+
+| E-mail | Senha | Perfil |
+|---|---|---|
+| `admin@iss.local` | `admin123` | `ADMIN` |
+
+Ele fica numa empresa "Empresa padrão" (CNPJ `00000000000000`; num banco migrado pela 002, é a mesma empresa que recebeu os dados antigos). Ajuste a razão social e o CNPJ dela depois, com `PUT /src/api/empresas.php?id=1`.
+
+A senha é pública, por isso há duas proteções:
+
+- **troca obrigatória**: o login devolve `usuario.trocar_senha: true` e, até a troca, todas as rotas respondem `403`, menos `trocar-senha.php`;
+- **só existe no banco vazio**: depois que houver qualquer usuário, o padrão não é recriado.
+
+```http
+POST /src/api/trocar-senha.php
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"senha_atual": "admin123", "nova_senha": "UmaSenhaForte!"}
+```
+
+A troca mantém a sessão atual (o mesmo token passa a ter acesso normal) e encerra as demais. Qualquer usuário pode usar essa rota para trocar a própria senha. A tela de exemplo (`src/index.php`) mostra o formulário de troca automaticamente.
+
+### Primeiro administrador pela linha de comando (alternativa)
+
+Em vez do usuário padrão, o primeiro `ADMIN` pode ser criado pelo script (os demais usuários e empresas ele cria pela API):
+
+```bash
+php scripts/criar_usuario.php --cnpj=12345678000190 --empresa="Empresa Exemplo Ltda" \
+    --nome="Fulano de Tal" --email=fulano@exemplo.com --senha=SenhaForte123 --perfil=ADMIN
+```
+
+Se a empresa (CNPJ) já existir, `--empresa` pode ser omitido e o usuário é adicionado a ela. Sem `--perfil`, o usuário é criado como `USUARIO`.
+
+Bancos criados antes desta versão: rode, em ordem, `migracoes/002_empresas_usuarios.sql` (os dados antigos vão para uma empresa padrão com CNPJ `00000000000000`; veja as instruções no próprio arquivo), `migracoes/003_perfil_usuario.sql` e `migracoes/004_trocar_senha.sql`.
+
+### Login
+
+```http
+POST /src/api/login.php
+Content-Type: application/json
+
+{"email": "fulano@exemplo.com", "senha": "SenhaForte123"}
+```
+
+```json
+{
+    "sucesso": true,
+    "dados": {
+        "token": "3f9a...c21e",
+        "expira_em": "2026-10-14 22:30:00",
+        "usuario": { "id": 1, "nome": "Fulano de Tal", "email": "fulano@exemplo.com", "perfil": "ADMIN", "trocar_senha": false },
+        "empresa": { "id": 1, "cnpj": "12345678000190", "razao_social": "Empresa Exemplo Ltda" }
+    }
+}
+```
+
+O token vale 8 horas. Envie-o em `importar.php` e `historico.php`:
+
+```http
+Authorization: Bearer 3f9a...c21e
+```
+
+Sem token (ou com token expirado/inválido, usuário ou empresa inativos) a API responde `401`. `POST /src/api/logout.php` com o mesmo cabeçalho invalida o token.
+
+## Cadastro de empresas e usuários (somente ADMIN)
+
+```http
+GET    /src/api/empresas.php            lista (filtros: busca, ativo, pagina, por_pagina)
+GET    /src/api/empresas.php?id={id}    detalhe
+POST   /src/api/empresas.php            cria
+PUT    /src/api/empresas.php?id={id}    altera só os campos enviados
+DELETE /src/api/empresas.php?id={id}    desativa
+
+GET    /src/api/usuarios.php            lista (filtros: busca, empresa_id, perfil, ativo, pagina, por_pagina)
+GET    /src/api/usuarios.php?id={id}    detalhe
+POST   /src/api/usuarios.php            cria
+PUT    /src/api/usuarios.php?id={id}    altera só os campos enviados
+DELETE /src/api/usuarios.php?id={id}    desativa
+
+Authorization: Bearer <token de um ADMIN>
+Content-Type: application/json          (POST e PUT)
+```
+
+### Exemplos
+
+```bash
+# cria uma empresa (CNPJ com ou sem máscara)
+curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"cnpj": "11.222.333/0001-81", "razao_social": "Cliente Novo Ltda"}' \
+  http://localhost:8000/src/api/empresas.php
+
+# cria um usuário nela (perfil padrão USUARIO)
+curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"empresa_id": 2, "nome": "Maria", "email": "maria@cliente.com", "senha": "SenhaMaria123"}' \
+  http://localhost:8000/src/api/usuarios.php
+
+# troca a senha (encerra as sessões abertas dela)
+curl -X PUT -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"senha": "OutraSenha456"}' \
+  "http://localhost:8000/src/api/usuarios.php?id=2"
+```
+
+Campos aceitos:
+
+| Recurso | POST (obrigatórios) | Opcionais |
+|---|---|---|
+| empresa | `cnpj`, `razao_social` | `ativo` |
+| usuário | `empresa_id`, `nome`, `email`, `senha` (8 a 72 caracteres) | `perfil` (`ADMIN`/`USUARIO`, padrão `USUARIO`), `ativo` |
+
+No `PUT`, todos são opcionais: envie só o que muda. Campos desconhecidos (ex.: `razaosocial`) são rejeitados com `400`, para um erro de digitação não passar despercebido.
+
+### Regras
+
+- **DELETE desativa, não apaga.** Empresas têm importações e notas fiscais, e usuários aparecem no histórico como autores das importações. Para reativar, envie `PUT` com `{"ativo": true}`.
+- Desativar uma empresa bloqueia na hora todos os usuários dela: o login falha e os tokens abertos passam a receber `401`.
+- Trocar a senha ou desativar um usuário encerra as sessões abertas dele.
+- O admin não pode desativar a si mesmo, remover o próprio perfil `ADMIN` nem desativar a própria empresa, para o sistema não ficar sem administrador.
+- A senha nunca é devolvida, nem como hash.
+- Não dá para criar nem mover usuário para uma empresa desativada.
+
+| HTTP | Quando |
+|---|---|
+| `200` / `201` | sucesso (`201` no POST) |
+| `400` | campo inválido, obrigatório ausente, campo desconhecido, JSON inválido, `id` ausente, operação sobre o próprio acesso |
+| `401` | token ausente, inválido ou expirado |
+| `403` | usuário logado não é `ADMIN`, ou está com senha provisória (troque em `trocar-senha.php`) |
+| `404` | registro não encontrado |
+| `405` | método não suportado |
+| `409` | CNPJ ou e-mail já cadastrado |
+
+## Endpoint de importação
 
 ```http
 POST /api/importar.php
 Content-Type: multipart/form-data
+Authorization: Bearer <token>
 ```
 
 Campo obrigatório:
@@ -40,6 +191,7 @@ arquivo = arquivo.txt
 
 ```bash
 curl -X POST \
+  -H "Authorization: Bearer <token>" \
   -F "arquivo=@notas_teste_iss.txt" \
   http://localhost/ImportadorFiscalISS/src/api/importar.php
 ```
@@ -98,14 +250,17 @@ Se ocorrer um erro inesperado (ex.: falha de banco), a API responde HTTP `500`, 
 
 ## Reimportação
 
-A nota é identificada por **prestador + número + série**. Reenviar uma nota já importada **atualiza** o registro existente (valores, data, tomador, serviço e `importacao_id`), em vez de duplicá-la. A mesma nota repetida **dentro de um mesmo arquivo** é rejeitada como erro de linha.
+A nota é identificada por **empresa + prestador + número + série**. Reenviar uma nota já importada **atualiza** o registro existente (valores, data, tomador, serviço e `importacao_id`), em vez de duplicá-la. A mesma nota repetida **dentro de um mesmo arquivo** é rejeitada como erro de linha.
 
 ## Histórico de importações
 
 ```http
 GET /src/api/historico.php
 GET /src/api/historico.php?id={id}
+Authorization: Bearer <token>
 ```
+
+Mostra apenas as importações da empresa do usuário. O `id` de uma importação de outra empresa responde `404`, como se não existisse.
 
 ### Lista
 
@@ -120,7 +275,7 @@ Parâmetros de query, todos opcionais:
 | `por_pagina` | padrão `20`, máximo `100` |
 
 ```bash
-curl "http://localhost/ImportadorFiscalISS/src/api/historico.php?status=PROCESSADA&pagina=1"
+curl -H "Authorization: Bearer <token>" "http://localhost/ImportadorFiscalISS/src/api/historico.php?status=PROCESSADA&pagina=1"
 ```
 
 ```json
@@ -136,7 +291,8 @@ curl "http://localhost/ImportadorFiscalISS/src/api/historico.php?status=PROCESSA
                 "total_linhas": 5,
                 "total_processadas": 5,
                 "total_erros": 0,
-                "iss_total": 1537.54
+                "iss_total": 1537.54,
+                "usuario": { "id": 1, "nome": "Fulano de Tal" }
             }
         ],
         "paginacao": {
@@ -157,10 +313,10 @@ curl "http://localhost/ImportadorFiscalISS/src/api/historico.php?status=PROCESSA
 ### Detalhe
 
 ```bash
-curl "http://localhost/ImportadorFiscalISS/src/api/historico.php?id=1"
+curl -H "Authorization: Bearer <token>" "http://localhost/ImportadorFiscalISS/src/api/historico.php?id=1"
 ```
 
-Retorna os mesmos campos da lista e mais:
+Retorna os mesmos campos da lista (incluindo `usuario`, que é `null` em importações anteriores ao cadastro de usuários) e mais:
 
 - `notas`: cada nota com `numero`, `serie`, `data_emissao`, `prestador` (`cnpj`, `razao_social`), `tomador` (`cpf_cnpj`, `razao_social`, ou `null`), `servico` (`codigo_lc116`, `descricao`), `municipio_prestacao`, `valor_servico`, `base_calculo`, `aliquota_iss`, `valor_iss` e `status`;
 - `erros`: no mesmo formato do `importar.php` (`linha`, `mensagem`, `original`).
@@ -172,7 +328,8 @@ Como uma nota reimportada passa a pertencer à importação mais recente, o deta
 | HTTP | Quando |
 |---|---|
 | `400` | parâmetro inválido (status desconhecido, data inexistente, `data_inicio` > `data_fim`, `por_pagina` fora de 1–100...) |
-| `404` | `id` não encontrado |
+| `401` | token ausente, inválido ou expirado |
+| `404` | `id` não encontrado (ou de outra empresa) |
 | `405` | método diferente de `GET` |
 | `500` | erro interno (só a mensagem genérica; o detalhe fica no log do PHP) |
 
@@ -229,6 +386,7 @@ formData.append('arquivo', arquivo);
 
 fetch('http://localhost/ImportadorFiscalISS/src/api/importar.php', {
     method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token }, // token devolvido por login.php
     body: formData
 });
 ```

@@ -6,6 +6,8 @@ declare(strict_types=1);
  * Endpoints:
  * GET /src/api/historico.php          lista paginada (filtros: status, arquivo, data_inicio, data_fim)
  * GET /src/api/historico.php?id=N     detalhe de uma importação, com notas e erros de linha
+ *
+ * Exige "Authorization: Bearer <token>" (ver login.php) e mostra só a empresa do usuário.
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -39,14 +41,34 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 require __DIR__ . '/../conexao.php';
+require __DIR__ . '/../backend/Autenticacao.php';
 require __DIR__ . '/../backend/HistoricoImportacoes.php';
 
+$sessao = (new Autenticacao($con))->usuarioDoToken(Autenticacao::tokenDaRequisicao());
+
+if ($sessao === null) {
+    responder(401, [
+        'sucesso' => false,
+        'mensagem' => 'Não autenticado. Faça login e envie o token no cabeçalho Authorization: Bearer <token>.'
+    ]);
+}
+
+if ($sessao['usuario']['trocar_senha']) {
+    responder(403, [
+        'sucesso' => false,
+        'mensagem' => Autenticacao::MENSAGEM_TROCAR_SENHA
+    ]);
+}
+
+// Só as importações da empresa do usuário são visíveis.
+$empresaId = $sessao['empresa']['id'];
 $historico = new HistoricoImportacoes($con);
 
 if (lerTexto('id') !== '') {
     $id = lerInteiro('id', 1, PHP_INT_MAX);
-    $importacao = $historico->detalhar($id);
+    $importacao = $historico->detalhar($empresaId, $id);
 
+    // Importação de outra empresa responde como inexistente (404), sem revelar que existe.
     if ($importacao === null) {
         responder(404, [
             'sucesso' => false,
@@ -90,7 +112,7 @@ $porPagina = lerTexto('por_pagina') !== '' ? lerInteiro('por_pagina', 1, 100) : 
 
 responder(200, [
     'sucesso' => true,
-    'dados' => $historico->listar($filtros, $pagina, $porPagina)
+    'dados' => $historico->listar($empresaId, $filtros, $pagina, $porPagina)
 ]);
 
 function lerTexto(string $campo): string

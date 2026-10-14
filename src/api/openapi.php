@@ -12,6 +12,7 @@ use OpenApi\Annotations as OA;
  * @OA\Server(url="http://localhost:8000", description="Ambiente local")
  * @OA\Tag(name="Sistema", description="Endpoints de status/infraestrutura da API")
  * @OA\Tag(name="Importação", description="Endpoints de importação e processamento fiscal do arquivo TXT")
+ * @OA\SecurityScheme(securityScheme="bearerAuth", type="http", scheme="bearer", description="Token devolvido por /src/api/login.php.")
  * @OA\Schema(
  *     schema="ErroLinha",
  *     type="object",

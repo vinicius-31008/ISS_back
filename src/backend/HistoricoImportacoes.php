@@ -11,52 +11,57 @@ class HistoricoImportacoes
         $this->con = $con;
     }
 
+    private const CAMPOS_IMPORTACAO =
+        'i.id, i.arquivo, i.data_importacao, i.total_linhas, i.total_processadas, i.total_erros, i.iss_total, i.status,
+         u.id AS usuario_id, u.nome AS usuario_nome';
+
     /**
-     * Lista as importações, mais recentes primeiro.
+     * Lista as importações da empresa, mais recentes primeiro.
      *
      * Filtros aceitos (todos opcionais, já validados pelo endpoint):
      * status, arquivo (trecho do nome), data_inicio e data_fim (YYYY-MM-DD, inclusivas).
      */
-    public function listar(array $filtros, int $pagina, int $porPagina): array
+    public function listar(int $empresaId, array $filtros, int $pagina, int $porPagina): array
     {
-        $condicoes = [];
-        $tipos = '';
-        $params = [];
+        $condicoes = ['i.empresa_id = ?'];
+        $tipos = 'i';
+        $params = [$empresaId];
 
         if (isset($filtros['status'])) {
-            $condicoes[] = 'status = ?';
+            $condicoes[] = 'i.status = ?';
             $tipos .= 's';
             $params[] = $filtros['status'];
         }
         if (isset($filtros['arquivo'])) {
-            $condicoes[] = 'arquivo LIKE ?';
+            $condicoes[] = 'i.arquivo LIKE ?';
             $tipos .= 's';
             $params[] = '%' . addcslashes($filtros['arquivo'], '%_\\') . '%';
         }
         if (isset($filtros['data_inicio'])) {
-            $condicoes[] = 'data_importacao >= ?';
+            $condicoes[] = 'i.data_importacao >= ?';
             $tipos .= 's';
             $params[] = $filtros['data_inicio'] . ' 00:00:00';
         }
         if (isset($filtros['data_fim'])) {
-            $condicoes[] = 'data_importacao < DATE_ADD(?, INTERVAL 1 DAY)';
+            $condicoes[] = 'i.data_importacao < DATE_ADD(?, INTERVAL 1 DAY)';
             $tipos .= 's';
             $params[] = $filtros['data_fim'];
         }
 
-        $where = $condicoes ? 'WHERE ' . implode(' AND ', $condicoes) : '';
+        $where = 'WHERE ' . implode(' AND ', $condicoes);
 
         $resumo = $this->consultar(
-            "SELECT COUNT(*) AS total, COALESCE(SUM(iss_total), 0) AS iss_total FROM importacoes $where",
+            "SELECT COUNT(*) AS total, COALESCE(SUM(i.iss_total), 0) AS iss_total FROM importacoes i $where",
             $tipos,
             $params
         )[0];
 
         $importacoes = $this->consultar(
-            "SELECT id, arquivo, data_importacao, total_linhas, total_processadas, total_erros, iss_total, status
-             FROM importacoes
+            'SELECT ' . self::CAMPOS_IMPORTACAO . "
+             FROM importacoes i
+             LEFT JOIN usuarios u ON u.id = i.usuario_id
              $where
-             ORDER BY data_importacao DESC, id DESC
+             ORDER BY i.data_importacao DESC, i.id DESC
              LIMIT ? OFFSET ?",
             $tipos . 'ii',
             array_merge($params, [$porPagina, ($pagina - 1) * $porPagina])
@@ -79,19 +84,21 @@ class HistoricoImportacoes
     }
 
     /**
-     * Detalhe de uma importação: totais, notas e erros de linha. Null se não existir.
+     * Detalhe de uma importação: totais, notas e erros de linha. Null se não existir
+     * ou se pertencer a outra empresa.
      *
      * As notas listadas são as que ainda pertencem à importação: uma nota reimportada
      * depois passa a apontar para a importação mais recente.
      */
-    public function detalhar(int $id): ?array
+    public function detalhar(int $empresaId, int $id): ?array
     {
         $importacao = $this->consultar(
-            'SELECT id, arquivo, data_importacao, total_linhas, total_processadas, total_erros, iss_total, status
-             FROM importacoes
-             WHERE id = ?',
-            'i',
-            [$id]
+            'SELECT ' . self::CAMPOS_IMPORTACAO . '
+             FROM importacoes i
+             LEFT JOIN usuarios u ON u.id = i.usuario_id
+             WHERE i.id = ? AND i.empresa_id = ?',
+            'ii',
+            [$id, $empresaId]
         );
 
         if (!$importacao) {
@@ -152,6 +159,11 @@ class HistoricoImportacoes
             'total_processadas' => (int)$i['total_processadas'],
             'total_erros' => (int)$i['total_erros'],
             'iss_total' => round((float)$i['iss_total'], 2),
+            // Null nas importações anteriores ao cadastro de usuários ou se o usuário foi excluído.
+            'usuario' => $i['usuario_id'] === null ? null : [
+                'id' => (int)$i['usuario_id'],
+                'nome' => $i['usuario_nome'],
+            ],
         ];
     }
 

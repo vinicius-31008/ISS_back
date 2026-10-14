@@ -13,7 +13,11 @@ class ImportadorTxt
         $this->calculadora = $calculadora;
     }
 
-    public function processar(string $nomeArquivo, string $conteudo): array
+    /**
+     * Tudo o que é gravado (importação, prestadores, tomadores e, por meio deles,
+     * as notas) pertence a $empresaId. $usuarioId é quem disparou a importação.
+     */
+    public function processar(int $empresaId, int $usuarioId, string $nomeArquivo, string $conteudo): array
     {
         $linhas = preg_split('/\r\n|\r|\n/', $conteudo);
         $totalLinhas = 0;
@@ -26,7 +30,7 @@ class ImportadorTxt
         mysqli_begin_transaction($this->con);
 
         try {
-            $importacaoId = $this->criarImportacao($nomeArquivo);
+            $importacaoId = $this->criarImportacao($empresaId, $usuarioId, $nomeArquivo);
 
             foreach ($linhas as $indice => $linhaOriginal) {
                 $linha = trim($linhaOriginal);
@@ -64,8 +68,8 @@ class ImportadorTxt
                         (float)$servico['aliquota_iss']
                     );
 
-                    $prestadorId = $this->obterPrestador($dados);
-                    $tomadorId = $this->obterTomador($dados);
+                    $prestadorId = $this->obterPrestador($empresaId, $dados);
+                    $tomadorId = $this->obterTomador($empresaId, $dados);
                     $this->inserirNota($importacaoId, $dados, $prestadorId, $tomadorId, $servico, $calculo);
 
                     mysqli_query($this->con, 'RELEASE SAVEPOINT linha');
@@ -90,7 +94,7 @@ class ImportadorTxt
             return compact('importacaoId', 'totalLinhas', 'processadas', 'erros', 'issTotal', 'status');
         } catch (Throwable $e) {
             mysqli_rollback($this->con);
-            $this->registrarFalha($nomeArquivo);
+            $this->registrarFalha($empresaId, $usuarioId, $nomeArquivo);
             throw $e;
         }
     }
@@ -172,40 +176,40 @@ class ImportadorTxt
         return (float)$normalizado;
     }
 
-    private function criarImportacao(string $arquivo): int
+    private function criarImportacao(int $empresaId, int $usuarioId, string $arquivo): int
     {
-        $stmt = mysqli_prepare($this->con, 'INSERT INTO importacoes (arquivo) VALUES (?)');
-        mysqli_stmt_bind_param($stmt, 's', $arquivo);
+        $stmt = mysqli_prepare($this->con, 'INSERT INTO importacoes (empresa_id, usuario_id, arquivo) VALUES (?, ?, ?)');
+        mysqli_stmt_bind_param($stmt, 'iis', $empresaId, $usuarioId, $arquivo);
         mysqli_stmt_execute($stmt);
         $id = mysqli_insert_id($this->con);
         mysqli_stmt_close($stmt);
         return $id;
     }
 
-    private function obterPrestador(array $d): int
+    private function obterPrestador(int $empresaId, array $d): int
     {
-        $sql = 'INSERT INTO prestadores (cnpj, razao_social, municipio_ibge, uf)
-                VALUES (?, ?, ?, NULL)
+        $sql = 'INSERT INTO prestadores (empresa_id, cnpj, razao_social, municipio_ibge, uf)
+                VALUES (?, ?, ?, ?, NULL)
                 ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), razao_social = VALUES(razao_social), municipio_ibge = VALUES(municipio_ibge)';
         $stmt = mysqli_prepare($this->con, $sql);
-        mysqli_stmt_bind_param($stmt, 'sss', $d['cnpj_prestador'], $d['razao_prestador'], $d['municipio']);
+        mysqli_stmt_bind_param($stmt, 'isss', $empresaId, $d['cnpj_prestador'], $d['razao_prestador'], $d['municipio']);
         mysqli_stmt_execute($stmt);
         $id = mysqli_insert_id($this->con);
         mysqli_stmt_close($stmt);
         return $id;
     }
 
-    private function obterTomador(array $d): ?int
+    private function obterTomador(int $empresaId, array $d): ?int
     {
         if ($d['doc_tomador'] === '') {
             return null;
         }
 
-        $sql = 'INSERT INTO tomadores (cpf_cnpj, razao_social, municipio_ibge, uf)
-                VALUES (?, ?, ?, NULL)
+        $sql = 'INSERT INTO tomadores (empresa_id, cpf_cnpj, razao_social, municipio_ibge, uf)
+                VALUES (?, ?, ?, ?, NULL)
                 ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), razao_social = VALUES(razao_social), municipio_ibge = VALUES(municipio_ibge)';
         $stmt = mysqli_prepare($this->con, $sql);
-        mysqli_stmt_bind_param($stmt, 'sss', $d['doc_tomador'], $d['razao_tomador'], $d['municipio']);
+        mysqli_stmt_bind_param($stmt, 'isss', $empresaId, $d['doc_tomador'], $d['razao_tomador'], $d['municipio']);
         mysqli_stmt_execute($stmt);
         $id = mysqli_insert_id($this->con);
         mysqli_stmt_close($stmt);
@@ -254,13 +258,13 @@ class ImportadorTxt
         mysqli_stmt_close($stmt);
     }
 
-    private function registrarFalha(string $arquivo): void
+    private function registrarFalha(int $empresaId, int $usuarioId, string $arquivo): void
     {
         // Roda após o rollback (fora da transação), para deixar rastro da tentativa.
         // Se o próprio banco estiver fora do ar, apenas loga: a exceção original é que importa.
         try {
-            $stmt = mysqli_prepare($this->con, "INSERT INTO importacoes (arquivo, status) VALUES (?, 'ERRO')");
-            mysqli_stmt_bind_param($stmt, 's', $arquivo);
+            $stmt = mysqli_prepare($this->con, "INSERT INTO importacoes (empresa_id, usuario_id, arquivo, status) VALUES (?, ?, ?, 'ERRO')");
+            mysqli_stmt_bind_param($stmt, 'iis', $empresaId, $usuarioId, $arquivo);
             mysqli_stmt_execute($stmt);
             mysqli_stmt_close($stmt);
         } catch (Throwable $falha) {

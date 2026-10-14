@@ -1,5 +1,8 @@
 Options -Indexes
 
+# Com PHP em CGI/FastCGI o Apache descarta o cabeçalho Authorization (token de login).
+SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
+
 <IfModule mod_headers.c>
     Header always set Access-Control-Allow-Origin "*"
 </IfModule>
