@@ -62,6 +62,7 @@ class ComposerStaticInit4949d47afb5c64f3f8d3d512d58960ee
         'CalculadoraIss' => __DIR__ . '/../..' . '/src/backend/CalculadoraIss.php',
         'ClassificadorServico' => __DIR__ . '/../..' . '/src/backend/ClassificadorServico.php',
         'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
+        'HistoricoImportacoes' => __DIR__ . '/../..' . '/src/backend/HistoricoImportacoes.php',
         'ImportadorTxt' => __DIR__ . '/../..' . '/src/backend/ImportadorTxt.php',
         'OpenApi\\Analysers\\AnalyserInterface' => __DIR__ . '/..' . '/zircote/swagger-php/src/Analysers/AnalyserInterface.php',
         'OpenApi\\Analysers\\AnnotationFactoryInterface' => __DIR__ . '/..' . '/zircote/swagger-php/src/Analysers/AnnotationFactoryInterface.php',
