@@ -42,6 +42,10 @@ $openapi = [
             'description' => 'Consulta das importações já realizadas'
         ],
         [
+            'name' => 'Exportação',
+            'description' => 'Arquivos de entrega da obrigação fiscal à prefeitura'
+        ],
+        [
             'name' => 'Empresas',
             'description' => 'CRUD de empresas (somente perfil ADMIN). DELETE desativa: importações e notas são mantidas.'
         ],
@@ -375,6 +379,89 @@ $openapi = [
                     ],
                     '405' => [
                         'description' => 'Método diferente de GET',
+                        'content' => [
+                            'application/json' => [
+                                'schema' => ['$ref' => '#/components/schemas/RespostaErro']
+                            ]
+                        ]
+                    ],
+                    '500' => [
+                        'description' => 'Erro interno',
+                        'content' => [
+                            'application/json' => [
+                                'schema' => ['$ref' => '#/components/schemas/RespostaErro']
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        ],
+        '/src/api/exportar-iss.php' => [
+            'get' => [
+                'tags' => ['Exportação'],
+                'summary' => 'Exporta uma nota no TXT do ISS de Santa Bárbara d\'Oeste (SIGISSWEB)',
+                'security' => [['bearerAuth' => []]],
+                'description' => 'Gera o arquivo de importação do SIGISSWEB (layout 2.0, largura fixa, ANSI) com os registros 0, 1, 2 e 9 da nota. '
+                    . 'O `id` da nota aparece no detalhe do histórico (`historico.php?id=`). Nota de outra empresa responde 404. '
+                    . 'Endereço, inscrições e contato do tomador e os tributos federais saem em branco/zerados, pois o sistema não os cadastra. '
+                    . 'Use `homologacao=true` para gerar o registro 0 com "X" e só validar o arquivo no SIGISSWEB.',
+                'parameters' => [
+                    [
+                        'name' => 'id',
+                        'in' => 'query',
+                        'required' => true,
+                        'description' => 'ID da nota.',
+                        'schema' => ['type' => 'integer', 'minimum' => 1]
+                    ],
+                    [
+                        'name' => 'regime',
+                        'in' => 'query',
+                        'required' => false,
+                        'description' => 'Regime de apuração do prestador: S (Simples Nacional), V (variável), M (MEI), L (especial).',
+                        'schema' => ['type' => 'string', 'enum' => ['S', 'V', 'M', 'L'], 'default' => 'V']
+                    ],
+                    [
+                        'name' => 'retencao',
+                        'in' => 'query',
+                        'required' => false,
+                        'description' => 'N (não retido), S (retido no município), F (retido fora), D (devido fora, não retido), I (sem incidência).',
+                        'schema' => ['type' => 'string', 'enum' => ['N', 'S', 'F', 'D', 'I'], 'default' => 'N']
+                    ],
+                    [
+                        'name' => 'homologacao',
+                        'in' => 'query',
+                        'required' => false,
+                        'schema' => ['type' => 'boolean', 'default' => false]
+                    ]
+                ],
+                'responses' => [
+                    '200' => [
+                        'description' => 'Arquivo TXT (download, nome CNPJ + MMAAAA + .TXT)',
+                        'content' => [
+                            'text/plain' => [
+                                'schema' => ['type' => 'string', 'format' => 'binary']
+                            ]
+                        ]
+                    ],
+                    '400' => [
+                        'description' => 'Parâmetro inválido',
+                        'content' => [
+                            'application/json' => [
+                                'schema' => ['$ref' => '#/components/schemas/RespostaErro']
+                            ]
+                        ]
+                    ],
+                    '401' => ['$ref' => '#/components/responses/NaoAutenticado'],
+                    '404' => [
+                        'description' => 'Nota não encontrada (ou de outra empresa)',
+                        'content' => [
+                            'application/json' => [
+                                'schema' => ['$ref' => '#/components/schemas/RespostaErro']
+                            ]
+                        ]
+                    ],
+                    '422' => [
+                        'description' => 'Nota não cabe no layout (número não numérico, série vazia, sem tomador, data futura, ISS retido de pessoa física)',
                         'content' => [
                             'application/json' => [
                                 'schema' => ['$ref' => '#/components/schemas/RespostaErro']

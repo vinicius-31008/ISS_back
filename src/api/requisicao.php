@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * Funções comuns aos endpoints de cadastro (empresas.php, usuarios.php).
+ * Funções comuns aos endpoints de cadastro (empresas.php, usuarios.php) e ao dashboard.php.
  */
 
 /**

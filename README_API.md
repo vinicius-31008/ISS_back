@@ -192,7 +192,7 @@ arquivo = arquivo.txt
 ```bash
 curl -X POST \
   -H "Authorization: Bearer <token>" \
-  -F "arquivo=@notas_teste_iss.txt" \
+  -F "arquivo=@arquivos_teste/notas_teste_iss.txt" \
   http://localhost/ImportadorFiscalISS/src/api/importar.php
 ```
 

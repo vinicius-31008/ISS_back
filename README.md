@@ -38,7 +38,12 @@ ISS_back-main/
 │   └── 004_trocar_senha.sql
 ├── scripts/
 │   └── criar_usuario.php           # CLI: cria empresa + usuário (alternativa ao usuário padrão)
-├── notas_teste_iss.txt             # Arquivo de exemplo para testar a importação
+├── arquivos_teste/                 # TXTs de exemplo para testar a importação e a exportação
+│   ├── notas_teste_iss.txt          # Exemplo básico (5 notas válidas)
+│   ├── notas_santa_barbara_validas.txt # Notas de Santa Bárbara d'Oeste prontas para exportar (PJ e PF)
+│   ├── notas_formatos_variados.txt  # Valores/datas/documentos em formatos aceitos, acentos, nota sem tomador
+│   ├── notas_com_erros.txt          # Uma falha por linha → importação PROCESSADA_COM_ERROS
+│   └── notas_exportacao_rejeitada.txt # Importam, mas exportar-iss.php responde 422 (série, número, sem tomador)
 ├── README.md                       # Este arquivo
 ├── README_API.md                   # Documentação de referência da API (complementar)
 ├── README_original.md              # Histórico do exercício didático original
@@ -59,6 +64,7 @@ ISS_back-main/
     │   ├── logout.php               # POST — invalida o token
     │   ├── importar.php             # POST — recebe o TXT, processa e retorna JSON
     │   ├── historico.php            # GET  — histórico das importações (lista e detalhe)
+    │   ├── exportar-iss.php         # GET  — TXT da nota para o ISS de Santa Bárbara d'Oeste
     │   ├── empresas.php             # CRUD de empresas (ADMIN)
     │   ├── usuarios.php             # CRUD de usuários (ADMIN)
     │   ├── requisicao.php           # Funções comuns de empresas.php / usuarios.php / trocar-senha.php
@@ -69,6 +75,7 @@ ISS_back-main/
     └── backend/                    # Regras de negócio (não é acessado diretamente pela web)
         ├── ImportadorTxt.php        # Orquestra a importação linha a linha
         ├── HistoricoImportacoes.php # Consultas do histórico de importações
+        ├── ExportadorIssSantaBarbara.php # Gera o TXT do SIGISSWEB (layout 2.0) de uma nota
         ├── ClassificadorServico.php # Busca a regra de serviço (LC116) no banco
         ├── CalculadoraIss.php       # Calcula base de cálculo e valor do ISS
         ├── Autenticacao.php         # Login, validação do token, troca de senha
@@ -353,6 +360,7 @@ Depois, troque a `url` em `docs.html` de `gerar-swagger.php` para `openapi.json`
 | `POST` | `/src/api/importar.php` | logado | Upload e processamento do TXT (campo `arquivo`) |
 | `GET` | `/src/api/historico.php` | logado | Lista paginada das importações da empresa (filtros: `status`, `arquivo`, `data_inicio`, `data_fim`, `pagina`, `por_pagina`) |
 | `GET` | `/src/api/historico.php?id={id}` | logado | Detalhe de uma importação, com notas e erros de linha |
+| `GET` | `/src/api/exportar-iss.php?id={id}` | logado | TXT da nota para o ISS de Santa Bárbara d'Oeste (SIGISSWEB 2.0); opcionais `regime`, `retencao`, `homologacao` |
 | `GET` `POST` `PUT` `DELETE` | `/src/api/empresas.php` | `ADMIN` | CRUD de empresas (`?id=` no detalhe, `PUT` e `DELETE`) |
 | `GET` `POST` `PUT` `DELETE` | `/src/api/usuarios.php` | `ADMIN` | CRUD de usuários (`?id=` no detalhe, `PUT` e `DELETE`) |
 | `GET` | `/src/api/docs.html` | público | Documentação interativa (Swagger UI) |
@@ -370,7 +378,7 @@ curl -X POST -H "Content-Type: application/json" \
 
 curl -X POST \
   -H "Authorization: Bearer <token>" \
-  -F "arquivo=@notas_teste_iss.txt" \
+  -F "arquivo=@arquivos_teste/notas_teste_iss.txt" \
   http://localhost:8000/src/api/importar.php
 ```
 
@@ -383,6 +391,14 @@ curl -H "Authorization: Bearer <token>" \
 
 # detalhe da importação 1
 curl -H "Authorization: Bearer <token>" "http://localhost:8000/src/api/historico.php?id=1"
+```
+
+Exportando a nota 1 para o ISS de Santa Bárbara d'Oeste (o `id` vem do detalhe do histórico):
+
+```bash
+# -OJ salva com o nome enviado pela API (CNPJ + MMAAAA + .TXT)
+curl -OJ -H "Authorization: Bearer <token>" \
+  "http://localhost:8000/src/api/exportar-iss.php?id=1&regime=V&retencao=N&homologacao=true"
 ```
 
 Criando uma empresa e um usuário (token de `ADMIN`):
