@@ -478,6 +478,97 @@ $openapi = [
                     ]
                 ]
             ]
+        ],
+        '/src/api/exportar-iss-lote.php' => [
+            'post' => [
+                'tags' => ['Exportação'],
+                'summary' => 'Exporta várias notas de uma vez para o ISS de Santa Bárbara d\'Oeste (SIGISSWEB)',
+                'security' => [['bearerAuth' => []]],
+                'description' => 'Mesmo layout de `exportar-iss.php`, com várias notas por arquivo. Como o registro 0 tem uma só competência e o registro 1 um só prestador, '
+                    . 'as notas são agrupadas por prestador + competência (MMAAAA), um TXT por grupo. Um grupo → responde o TXT; vários → responde um ZIP com todos os TXT. '
+                    . 'Se alguma nota não existir (ou for de outra empresa) ou não couber no layout, nada é gerado e a resposta 422 lista cada problema em `erros`. '
+                    . 'Os cabeçalhos `X-Notas-Exportadas` e `X-Arquivos-Gerados` trazem o resumo.',
+                'requestBody' => [
+                    'required' => true,
+                    'content' => [
+                        'application/json' => [
+                            'schema' => [
+                                'type' => 'object',
+                                'required' => ['ids'],
+                                'properties' => [
+                                    'ids' => ['type' => 'array', 'minItems' => 1, 'maxItems' => 500, 'items' => ['type' => 'integer', 'minimum' => 1], 'example' => [1, 2, 3]],
+                                    'regime' => ['type' => 'string', 'enum' => ['S', 'V', 'M', 'L'], 'default' => 'V'],
+                                    'retencao' => ['type' => 'string', 'enum' => ['N', 'S', 'F', 'D', 'I'], 'default' => 'N'],
+                                    'homologacao' => ['type' => 'boolean', 'default' => false]
+                                ]
+                            ]
+                        ]
+                    ]
+                ],
+                'responses' => [
+                    '200' => [
+                        'description' => 'TXT (um grupo prestador + competência) ou ZIP (vários grupos)',
+                        'headers' => [
+                            'X-Notas-Exportadas' => ['schema' => ['type' => 'integer']],
+                            'X-Arquivos-Gerados' => ['schema' => ['type' => 'integer']]
+                        ],
+                        'content' => [
+                            'text/plain' => ['schema' => ['type' => 'string', 'format' => 'binary']],
+                            'application/zip' => ['schema' => ['type' => 'string', 'format' => 'binary']]
+                        ]
+                    ],
+                    '400' => [
+                        'description' => 'Corpo inválido (ids ausente/vazio/não inteiro, mais de 500 notas, regime/retenção inválidos)',
+                        'content' => [
+                            'application/json' => [
+                                'schema' => ['$ref' => '#/components/schemas/RespostaErro']
+                            ]
+                        ]
+                    ],
+                    '401' => ['$ref' => '#/components/responses/NaoAutenticado'],
+                    '405' => [
+                        'description' => 'Método diferente de POST',
+                        'content' => [
+                            'application/json' => [
+                                'schema' => ['$ref' => '#/components/schemas/RespostaErro']
+                            ]
+                        ]
+                    ],
+                    '422' => [
+                        'description' => 'Uma ou mais notas não encontradas ou fora do layout; nada foi gerado',
+                        'content' => [
+                            'application/json' => [
+                                'schema' => [
+                                    'type' => 'object',
+                                    'properties' => [
+                                        'sucesso' => ['type' => 'boolean', 'example' => false],
+                                        'mensagem' => ['type' => 'string', 'example' => '2 notas não podem ser exportadas. Corrija ou remova da seleção.'],
+                                        'erros' => [
+                                            'type' => 'array',
+                                            'items' => [
+                                                'type' => 'object',
+                                                'properties' => [
+                                                    'id' => ['type' => 'integer'],
+                                                    'numero' => ['type' => 'string', 'nullable' => true],
+                                                    'mensagem' => ['type' => 'string']
+                                                ]
+                                            ]
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ],
+                    '500' => [
+                        'description' => 'Erro interno',
+                        'content' => [
+                            'application/json' => [
+                                'schema' => ['$ref' => '#/components/schemas/RespostaErro']
+                            ]
+                        ]
+                    ]
+                ]
+            ]
         ]
     ] + caminhosCrud(
         '/src/api/empresas.php',

@@ -65,6 +65,7 @@ ISS_back-main/
     │   ├── importar.php             # POST — recebe o TXT, processa e retorna JSON
     │   ├── historico.php            # GET  — histórico das importações (lista e detalhe)
     │   ├── exportar-iss.php         # GET  — TXT da nota para o ISS de Santa Bárbara d'Oeste
+    │   ├── exportar-iss-lote.php    # POST — várias notas: TXT por prestador + competência (ZIP se mais de um)
     │   ├── empresas.php             # CRUD de empresas (ADMIN)
     │   ├── usuarios.php             # CRUD de usuários (ADMIN)
     │   ├── requisicao.php           # Funções comuns de empresas.php / usuarios.php / trocar-senha.php
@@ -75,7 +76,8 @@ ISS_back-main/
     └── backend/                    # Regras de negócio (não é acessado diretamente pela web)
         ├── ImportadorTxt.php        # Orquestra a importação linha a linha
         ├── HistoricoImportacoes.php # Consultas do histórico de importações
-        ├── ExportadorIssSantaBarbara.php # Gera o TXT do SIGISSWEB (layout 2.0) de uma nota
+        ├── ExportadorIssSantaBarbara.php # Gera o TXT do SIGISSWEB (layout 2.0) de uma nota ou de um lote
+        ├── ZipSimples.php           # Monta o ZIP da exportação em lote (sem depender da extensão zip)
         ├── ClassificadorServico.php # Busca a regra de serviço (LC116) no banco
         ├── CalculadoraIss.php       # Calcula base de cálculo e valor do ISS
         ├── Autenticacao.php         # Login, validação do token, troca de senha
@@ -361,6 +363,7 @@ Depois, troque a `url` em `docs.html` de `gerar-swagger.php` para `openapi.json`
 | `GET` | `/src/api/historico.php` | logado | Lista paginada das importações da empresa (filtros: `status`, `arquivo`, `data_inicio`, `data_fim`, `pagina`, `por_pagina`) |
 | `GET` | `/src/api/historico.php?id={id}` | logado | Detalhe de uma importação, com notas e erros de linha |
 | `GET` | `/src/api/exportar-iss.php?id={id}` | logado | TXT da nota para o ISS de Santa Bárbara d'Oeste (SIGISSWEB 2.0); opcionais `regime`, `retencao`, `homologacao` |
+| `POST` | `/src/api/exportar-iss-lote.php` | logado | Exportação em lote (corpo JSON `ids`, até 500): um TXT por prestador + competência; vários grupos saem em ZIP |
 | `GET` `POST` `PUT` `DELETE` | `/src/api/empresas.php` | `ADMIN` | CRUD de empresas (`?id=` no detalhe, `PUT` e `DELETE`) |
 | `GET` `POST` `PUT` `DELETE` | `/src/api/usuarios.php` | `ADMIN` | CRUD de usuários (`?id=` no detalhe, `PUT` e `DELETE`) |
 | `GET` | `/src/api/docs.html` | público | Documentação interativa (Swagger UI) |
@@ -399,6 +402,14 @@ Exportando a nota 1 para o ISS de Santa Bárbara d'Oeste (o `id` vem do detalhe 
 # -OJ salva com o nome enviado pela API (CNPJ + MMAAAA + .TXT)
 curl -OJ -H "Authorization: Bearer <token>" \
   "http://localhost:8000/src/api/exportar-iss.php?id=1&regime=V&retencao=N&homologacao=true"
+```
+
+Exportando várias notas de uma vez. O layout aceita um só prestador e uma só competência por arquivo, então a API agrupa: um grupo → TXT; vários → ZIP com um TXT por grupo. Se alguma nota não puder ser exportada, nada é gerado e a resposta 422 lista os problemas em `erros`:
+
+```bash
+curl -OJ -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"ids": [1, 2, 3], "regime": "V", "retencao": "N", "homologacao": true}' \
+  http://localhost:8000/src/api/exportar-iss-lote.php
 ```
 
 Criando uma empresa e um usuário (token de `ADMIN`):

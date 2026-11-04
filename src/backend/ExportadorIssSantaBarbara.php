@@ -37,35 +37,125 @@ class ExportadorIssSantaBarbara
      */
     public function exportarNota(int $empresaId, int $notaId, string $regime, string $retencao, bool $homologacao): ?array
     {
-        $nota = $this->buscarNota($empresaId, $notaId);
+        $nota = $this->buscarNotas($empresaId, [$notaId])[$notaId] ?? null;
         if ($nota === null) {
             return null;
         }
 
         $this->validar($nota, $regime, $retencao);
 
-        $emissao = new DateTime($nota['data_emissao']);
-        $linhas = [
-            $this->registroPrefeitura($emissao, $homologacao),
-            $this->registroEmpresa($nota['cnpj_prestador']),
-            $this->registroNota($nota, $emissao, $regime, $retencao),
-            '9' . str_pad('1', 6, '0', STR_PAD_LEFT),
+        return $this->gerarArquivo([$nota], $regime, $retencao, $homologacao);
+    }
+
+    /**
+     * Exporta várias notas de $empresaId de uma vez.
+     *
+     * O registro 0 tem uma única competência e o registro 1 um único prestador, então as
+     * notas são agrupadas por prestador + competência (MMAAAA), um TXT por grupo.
+     * Um grupo só → o próprio TXT; mais de um → ZIP com todos os TXT.
+     *
+     * Se alguma nota não existir (ou for de outra empresa) ou não couber no layout,
+     * nada é gerado: volta a lista de problemas, para o usuário corrigir a seleção.
+     *
+     * @param int[] $notaIds
+     * @return array{arquivo: string, conteudo: string, tipo: string, notas: int, arquivos: int}
+     *       | array{erros: list<array{id: int, numero: ?string, mensagem: string}>}
+     */
+    public function exportarLote(int $empresaId, array $notaIds, string $regime, string $retencao, bool $homologacao): array
+    {
+        $notaIds = array_values(array_unique($notaIds));
+        $notas = $this->buscarNotas($empresaId, $notaIds);
+        $erros = [];
+        $grupos = [];
+
+        foreach ($notaIds as $id) {
+            $nota = $notas[$id] ?? null;
+            if ($nota === null) {
+                $erros[] = ['id' => $id, 'numero' => null, 'mensagem' => 'nota não encontrada.'];
+                continue;
+            }
+
+            try {
+                $this->validar($nota, $regime, $retencao);
+            } catch (ErroCadastro $e) {
+                $erros[] = ['id' => $id, 'numero' => $nota['numero'], 'mensagem' => $e->getMessage()];
+                continue;
+            }
+
+            $competencia = (new DateTime($nota['data_emissao']))->format('mY');
+            $grupos[$nota['cnpj_prestador'] . $competencia][] = $nota;
+        }
+
+        if ($erros) {
+            return ['erros' => $erros];
+        }
+
+        ksort($grupos);
+        $arquivos = array_map(
+            fn(array $grupo) => $this->gerarArquivo($grupo, $regime, $retencao, $homologacao),
+            array_values($grupos)
+        );
+
+        if (count($arquivos) === 1) {
+            return $arquivos[0] + ['tipo' => 'text/plain; charset=windows-1252', 'notas' => count($notaIds), 'arquivos' => 1];
+        }
+
+        return [
+            'arquivo' => 'exportacao-iss-' . date('Ymd-His') . '.zip',
+            'conteudo' => ZipSimples::gerar(array_column($arquivos, 'conteudo', 'arquivo')),
+            'tipo' => 'application/zip',
+            'notas' => count($notaIds),
+            'arquivos' => count($arquivos),
         ];
+    }
+
+    /**
+     * Um TXT com as $notas (mesmo prestador e mesma competência), já validadas.
+     *
+     * @return array{arquivo: string, conteudo: string}
+     */
+    private function gerarArquivo(array $notas, string $regime, string $retencao, bool $homologacao): array
+    {
+        // Ordem estável no arquivo: emissão, depois número.
+        usort($notas, fn(array $a, array $b) => [$a['data_emissao'], (int)$a['numero']] <=> [$b['data_emissao'], (int)$b['numero']]);
+
+        $primeira = $notas[0];
+        $competencia = new DateTime($primeira['data_emissao']);
+
+        $linhas = [
+            $this->registroPrefeitura($competencia, $homologacao),
+            $this->registroEmpresa($primeira['cnpj_prestador']),
+        ];
+        foreach ($notas as $nota) {
+            $linhas[] = $this->registroNota($nota, new DateTime($nota['data_emissao']), $regime, $retencao);
+        }
+        $linhas[] = '9' . str_pad((string)count($notas), 6, '0', STR_PAD_LEFT);
 
         $conteudo = implode("\r\n", $linhas) . "\r\n";
 
         return [
             // Nome usado pelos emissores do SIGISSWEB: CNPJ + competência (MMAAAA) + .TXT
-            'arquivo' => $nota['cnpj_prestador'] . $emissao->format('mY') . '.TXT',
+            'arquivo' => $primeira['cnpj_prestador'] . $competencia->format('mY') . '.TXT',
             'conteudo' => mb_convert_encoding($conteudo, 'Windows-1252', 'UTF-8'),
         ];
     }
 
-    private function buscarNota(int $empresaId, int $notaId): ?array
+    /**
+     * Notas de $empresaId com os ids pedidos, indexadas pelo id (as de outra empresa ficam de fora).
+     *
+     * @param int[] $notaIds
+     * @return array<int, array>
+     */
+    private function buscarNotas(int $empresaId, array $notaIds): array
     {
+        if (!$notaIds) {
+            return [];
+        }
+
+        $marcadores = implode(', ', array_fill(0, count($notaIds), '?'));
         $stmt = mysqli_prepare(
             $this->con,
-            'SELECT n.numero, n.serie, n.data_emissao, n.valor_servico, n.base_calculo,
+            "SELECT n.id, n.numero, n.serie, n.data_emissao, n.valor_servico, n.base_calculo,
                     n.aliquota_iss, n.valor_iss, n.status,
                     p.cnpj AS cnpj_prestador,
                     t.cpf_cnpj AS documento_tomador, t.razao_social AS razao_tomador, t.uf AS uf_tomador,
@@ -74,14 +164,20 @@ class ExportadorIssSantaBarbara
              JOIN prestadores p ON p.id = n.prestador_id
              LEFT JOIN tomadores t ON t.id = n.tomador_id
              JOIN servicos s ON s.id = n.servico_id
-             WHERE n.id = ? AND p.empresa_id = ?'
+             WHERE p.empresa_id = ? AND n.id IN ($marcadores)"
         );
-        mysqli_stmt_bind_param($stmt, 'ii', $notaId, $empresaId);
+        $parametros = array_merge([$empresaId], array_map('intval', $notaIds));
+        mysqli_stmt_bind_param($stmt, str_repeat('i', count($parametros)), ...$parametros);
         mysqli_stmt_execute($stmt);
-        $nota = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+        $resultado = mysqli_stmt_get_result($stmt);
+
+        $notas = [];
+        while ($nota = mysqli_fetch_assoc($resultado)) {
+            $notas[(int)$nota['id']] = $nota;
+        }
         mysqli_stmt_close($stmt);
 
-        return $nota ?: null;
+        return $notas;
     }
 
     /** Regras do layout que o SIGISSWEB rejeitaria na importação. */
