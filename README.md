@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧾 Importador Fiscal ISS
+# Importador Fiscal ISS
 
 **API em PHP que importa notas fiscais de serviço, calcula o ISS e gera o arquivo de declaração para a prefeitura.**
 
@@ -25,7 +25,7 @@ Projeto acadêmico desenvolvido por alunos do **SENAI**
 
 ---
 
-## 🎓 Sobre o projeto
+## Sobre o projeto
 
 O **Importador Fiscal ISS** é um projeto **institucional**, criado por alunos do **SENAI** como parte da formação técnica em desenvolvimento de sistemas.
 
@@ -34,11 +34,11 @@ A ideia nasceu de um problema real de escritórios de contabilidade e empresas p
 Este sistema automatiza o caminho completo:
 
 ```text
-  📄 Arquivo TXT        ⚙️  API valida e         🗄️  Grava no          📤 Gera o arquivo
+   Arquivo TXT         API valida e          Grava no           Gera o arquivo
   com as notas    ──▶   calcula o ISS     ──▶   banco MySQL    ──▶   para a prefeitura
 ```
 
-> 💡 **De exercício a sistema completo.** O projeto começou como um exercício simples de sala de aula (importar clientes de um `.txt` para o banco) e foi evoluindo, aula após aula, até virar uma API com autenticação, várias empresas, histórico, painel e exportação fiscal. A versão original está preservada em [`README_original.md`](README_original.md).
+>  **De exercício a sistema completo.** O projeto começou como um exercício simples de sala de aula (importar clientes de um `.txt` para o banco) e foi evoluindo, aula após aula, até virar uma API com autenticação, várias empresas, histórico, painel e exportação fiscal. A versão original está preservada em [`README_original.md`](README_original.md).
 
 ### O que é ISS?
 
@@ -52,7 +52,7 @@ Por exemplo: um serviço de R$ 10.000,00 com alíquota de 2% gera R$ 200,00 de I
 
 ---
 
-## ✨ Funcionalidades
+##  Funcionalidades
 
 | | Funcionalidade | Descrição |
 |---|---|---|
@@ -71,7 +71,7 @@ Por exemplo: um serviço de R$ 10.000,00 com alíquota de 2% gera R$ 200,00 de I
 
 ---
 
-## 🛠️ Tecnologias
+## Tecnologias
 
 | Tecnologia | Uso no projeto |
 |---|---|
@@ -85,7 +85,7 @@ Por exemplo: um serviço de R$ 10.000,00 com alíquota de 2% gera R$ 200,00 de I
 
 ---
 
-## 🚀 Como rodar o projeto
+## Como rodar o projeto
 
 ### Pré-requisitos
 
@@ -148,7 +148,7 @@ php -S localhost:8000
 
 > Usando o servidor embutido do PHP, troque o campo **URL da API** da tela de exemplo para `/src/api/importar.php` (o padrão é o caminho do XAMPP).
 
-### 🔑 Primeiro acesso
+### Primeiro acesso
 
 Com o banco recém-criado, o primeiro login cria automaticamente um administrador:
 
@@ -172,7 +172,7 @@ php scripts/criar_usuario.php --cnpj=12345678000190 --empresa="Minha Empresa Ltd
 
 </details>
 
-### 🧪 Arquivos para testar
+### Arquivos para testar
 
 A pasta [`arquivos_teste/`](arquivos_teste/) traz arquivos prontos para experimentar cada situação:
 
@@ -187,7 +187,7 @@ A pasta [`arquivos_teste/`](arquivos_teste/) traz arquivos prontos para experime
 
 ---
 
-## 🧠 Como funciona por dentro
+## Como funciona por dentro
 
 ### Arquitetura em camadas
 
@@ -195,7 +195,7 @@ O projeto separa **quem conversa com a internet** de **quem tem as regras de neg
 
 ```mermaid
 flowchart LR
-    A[🖥️ Cliente<br/>index.php / Swagger / outro front] -->|HTTP + token| B
+    A[ Cliente<br/>index.php / Swagger / outro front] -->|HTTP + token| B
 
     subgraph API ["src/api/ — camada HTTP"]
         B[importar.php<br/>historico.php<br/>dashboard.php<br/>exportar-iss.php ...]
@@ -211,13 +211,13 @@ flowchart LR
 
     B --> C & F & G
     C --> D & E
-    C & D & F & G --> H[(🗄️ MySQL)]
+    C & D & F & G --> H[( MySQL)]
 ```
 
 - **`src/api/`** — cada arquivo é um endpoint. Valida a requisição, chama as regras e devolve JSON.
 - **`src/backend/`** — classes com uma responsabilidade cada. Nunca são acessadas direto pelo navegador.
 
-> 📌 Essa separação é a mesma ideia usada em frameworks como Laravel e Spring: a camada web pode mudar sem mexer nas regras de negócio.
+ Essa separação é a mesma ideia usada em frameworks como Laravel e Spring: a camada web pode mudar sem mexer nas regras de negócio.
 
 ### O caminho de uma importação
 
@@ -307,7 +307,7 @@ erDiagram
 
 ---
 
-## 📖 O que aprendemos com este projeto
+## O que aprendemos com este projeto
 
 Este repositório também é material de estudo. Estes são os principais conceitos aplicados — vale abrir os arquivos indicados para ver cada um na prática:
 
@@ -327,7 +327,7 @@ Este repositório também é material de estudo. Estes são os principais concei
 
 ---
 
-## 🔌 Endpoints da API
+## Endpoints da API
 
 Todas as rotas marcadas como **logado** ou **ADMIN** exigem o cabeçalho `Authorization: Bearer <token>`.
 
@@ -416,11 +416,11 @@ curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/js
 
 </details>
 
-📘 A referência completa (campos, respostas e códigos de erro) está em [`README_API.md`](README_API.md). Detalhes sobre a geração do Swagger em [`README_SWAGGER_CORRIGIDO.md`](README_SWAGGER_CORRIGIDO.md).
+A referência completa (campos, respostas e códigos de erro) está em [`README_API.md`](README_API.md). Detalhes sobre a geração do Swagger em [`README_SWAGGER_CORRIGIDO.md`](README_SWAGGER_CORRIGIDO.md).
 
 ---
 
-## 📁 Estrutura de pastas
+## Estrutura de pastas
 
 ```text
 ISS_back/
@@ -433,13 +433,13 @@ ISS_back/
 └── src/
     ├── index.php             # Tela de exemplo (HTML + JS puro)
     ├── conexao.php           # Conexão com o MySQL
-    ├── api/                  # 🌐 Endpoints (camada HTTP)
-    └── backend/              # 🧠 Regras de negócio
+    ├── api/                  # Endpoints (camada HTTP)
+    └── backend/              # Regras de negócio
 ```
 
 ---
 
-## 🧭 Evolução do projeto
+## Evolução do projeto
 
 <details>
 <summary><b>Problemas encontrados e como foram resolvidos</b></summary>
@@ -462,7 +462,7 @@ Parte importante do aprendizado foi encontrar e corrigir falhas. Algumas delas:
 
 ---
 
-## 👥 Equipe
+## Equipe
 
 Projeto desenvolvido por alunos do **SENAI**:
 
@@ -478,7 +478,7 @@ Projeto desenvolvido por alunos do **SENAI**:
 
 ---
 
-## ⚠️ Aviso
+## Aviso
 
 Este é um **projeto educacional**. O serviço `01.01` cadastrado na tabela `servicos` é apenas demonstrativo, e os campos fiscais (NBS, indOp, cClassTrib, alíquota) não devem ser preenchidos com valores presumidos. Para uso real, carregue as regras oficiais do seu município, troque a senha do banco em `src/conexao.php` e restrinja o CORS ao domínio do seu front-end.
 
@@ -486,6 +486,6 @@ Este é um **projeto educacional**. O serviço `01.01` cadastrado na tabela `ser
 
 <br>
 
-Feito com 💙 por alunos do **SENAI**
+Feito por alunos do **SENAI**
 
 </div>
